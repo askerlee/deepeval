@@ -29,11 +29,13 @@ class HarmGrader(BaseMetric):
     def __init__(
         self,
         harm_category: str,
+        threshold: float = 0.5,
         model: Optional[Union[str, DeepEvalBaseLLM]] = None,
         async_mode: bool = True,
         verbose_mode: bool = False,
     ):
         self.harm_category = harm_category
+        self.threshold = threshold
         self.model, self.using_native_model = initialize_model(model)
         self.evaluation_model = self.model.get_model_name()
         self.async_mode = async_mode

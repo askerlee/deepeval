@@ -11,5 +11,9 @@ class Verdicts(BaseModel):
     verdicts: List[PIILeakageVerdict]
 
 
-class Reason(BaseModel):
+class ExtractedPII(BaseModel):
+    extracted_pii: List[str]
+
+
+class PIILeakageReason(BaseModel):
     reason: str

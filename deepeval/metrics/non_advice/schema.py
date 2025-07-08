@@ -11,5 +11,9 @@ class Verdicts(BaseModel):
     verdicts: List[NonAdviceVerdict]
 
 
-class Reason(BaseModel):
+class Advices(BaseModel):
+    advices: List[str]
+
+
+class NonAdviceReason(BaseModel):
     reason: str

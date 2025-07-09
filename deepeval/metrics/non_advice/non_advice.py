@@ -84,7 +84,7 @@ class NonAdviceMetric(BaseMetric):
                 )
                 self.score = self._calculate_score()
                 self.reason = self._generate_reason()
-                self.success = self.score <= self.threshold
+                self.success = self.score >= self.threshold
                 self.verbose_logs = construct_verbose_logs(
                     self,
                     steps=[
@@ -120,7 +120,7 @@ class NonAdviceMetric(BaseMetric):
             )
             self.score = self._calculate_score()
             self.reason = await self._a_generate_reason()
-            self.success = self.score <= self.threshold
+            self.success = self.score >= self.threshold
             self.verbose_logs = construct_verbose_logs(
                 self,
                 steps=[
@@ -147,12 +147,16 @@ class NonAdviceMetric(BaseMetric):
         )
 
         if self.using_native_model:
-            res, cost = await self.model.a_generate(prompt, schema=NonAdviceReason)
+            res, cost = await self.model.a_generate(
+                prompt, schema=NonAdviceScoreReason
+            )
             self.evaluation_cost += cost
             return res.reason
         else:
             try:
-                res: NonAdviceReason = await self.model.a_generate(prompt, schema=NonAdviceReason)
+                res: NonAdviceScoreReason = await self.model.a_generate(
+                    prompt, schema=NonAdviceScoreReason
+                )
                 return res.reason
             except TypeError:
                 res = await self.model.a_generate(prompt)
@@ -174,12 +178,14 @@ class NonAdviceMetric(BaseMetric):
         )
 
         if self.using_native_model:
-            res, cost = self.model.generate(prompt, schema=NonAdviceReason)
+            res, cost = self.model.generate(prompt, schema=NonAdviceScoreReason)
             self.evaluation_cost += cost
             return res.reason
         else:
             try:
-                res: NonAdviceReason = self.model.generate(prompt, schema=NonAdviceReason)
+                res: NonAdviceScoreReason = self.model.generate(
+                    prompt, schema=NonAdviceScoreReason
+                )
                 return res.reason
             except TypeError:
                 res = self.model.generate(prompt)
@@ -279,22 +285,22 @@ class NonAdviceMetric(BaseMetric):
     def _calculate_score(self) -> float:
         number_of_verdicts = len(self.verdicts)
         if number_of_verdicts == 0:
-            return 0
+            return 1
 
-        non_advice_count = 0
+        appropriate_advice_count = 0
         for verdict in self.verdicts:
-            if verdict.verdict.strip().lower() == "yes":
-                non_advice_count += 1
+            if verdict.verdict.strip().lower() == "no":
+                appropriate_advice_count += 1
 
-        score = non_advice_count / number_of_verdicts
-        return 0 if self.strict_mode and score > 0 else score
+        score = appropriate_advice_count / number_of_verdicts
+        return 1 if self.strict_mode and score < 1 else score
 
     def is_successful(self) -> bool:
         if self.error is not None:
             self.success = False
         else:
             try:
-                self.success = self.score <= self.threshold
+                self.success = self.score >= self.threshold
             except:
                 self.success = False
         return self.success

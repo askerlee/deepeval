@@ -11,7 +11,6 @@ from deepeval.metrics.utils import (
 from deepeval.test_case import (
     LLMTestCase,
     LLMTestCaseParams,
-    ConversationalTestCase,
 )
 from deepeval.metrics import BaseMetric
 from deepeval.models import DeepEvalBaseLLM
@@ -147,12 +146,18 @@ class ContextualRelevancyMetric(BaseMetric):
             score=format(self.score, ".2f"),
         )
         if self.using_native_model:
-            res, cost = await self.model.a_generate(prompt, schema=ContextualRelevancyReason)
+            res, cost = await self.model.a_generate(
+                prompt, schema=ContextualRelevancyScoreReason
+            )
             self.evaluation_cost += cost
             return res.reason
         else:
             try:
-                res: ContextualRelevancyReason = await self.model.a_generate(prompt, schema=ContextualRelevancyReason)
+                res: ContextualRelevancyScoreReason = (
+                    await self.model.a_generate(
+                        prompt, schema=ContextualRelevancyScoreReason
+                    )
+                )
                 return res.reason
             except TypeError:
                 res = await self.model.a_generate(prompt)
@@ -179,12 +184,16 @@ class ContextualRelevancyMetric(BaseMetric):
             score=format(self.score, ".2f"),
         )
         if self.using_native_model:
-            res, cost = self.model.generate(prompt, schema=ContextualRelevancyReason)
+            res, cost = self.model.generate(
+                prompt, schema=ContextualRelevancyScoreReason
+            )
             self.evaluation_cost += cost
             return res.reason
         else:
             try:
-                res: ContextualRelevancyReason = self.model.generate(prompt, schema=ContextualRelevancyReason)
+                res: ContextualRelevancyScoreReason = self.model.generate(
+                    prompt, schema=ContextualRelevancyScoreReason
+                )
                 return res.reason
             except TypeError:
                 res = self.model.generate(prompt)

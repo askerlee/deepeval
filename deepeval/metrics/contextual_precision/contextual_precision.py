@@ -10,7 +10,6 @@ from deepeval.metrics.utils import (
 from deepeval.test_case import (
     LLMTestCase,
     LLMTestCaseParams,
-    ConversationalTestCase,
 )
 from deepeval.metrics import BaseMetric
 from deepeval.models import DeepEvalBaseLLM
@@ -144,12 +143,18 @@ class ContextualPrecisionMetric(BaseMetric):
         )
 
         if self.using_native_model:
-            res, cost = await self.model.a_generate(prompt, schema=ContextualPrecisionReason)
+            res, cost = await self.model.a_generate(
+                prompt, schema=ContextualPrecisionScoreReason
+            )
             self.evaluation_cost += cost
             return res.reason
         else:
             try:
-                res: ContextualPrecisionReason = await self.model.a_generate(prompt, schema=ContextualPrecisionReason)
+                res: ContextualPrecisionScoreReason = (
+                    await self.model.a_generate(
+                        prompt, schema=ContextualPrecisionScoreReason
+                    )
+                )
                 return res.reason
             except TypeError:
                 res = await self.model.a_generate(prompt)
@@ -171,12 +176,16 @@ class ContextualPrecisionMetric(BaseMetric):
         )
 
         if self.using_native_model:
-            res, cost = self.model.generate(prompt, schema=ContextualPrecisionReason)
+            res, cost = self.model.generate(
+                prompt, schema=ContextualPrecisionScoreReason
+            )
             self.evaluation_cost += cost
             return res.reason
         else:
             try:
-                res: ContextualPrecisionReason = self.model.generate(prompt, schema=ContextualPrecisionReason)
+                res: ContextualPrecisionScoreReason = self.model.generate(
+                    prompt, schema=ContextualPrecisionScoreReason
+                )
                 return res.reason
             except TypeError:
                 res = self.model.generate(prompt)

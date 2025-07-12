@@ -172,3 +172,6 @@ secrets
 # Mac OS system files
 **/.DS_Store
 
+test-prompts/*
+test-prompts
+

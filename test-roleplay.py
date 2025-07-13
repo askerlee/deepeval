@@ -34,12 +34,19 @@ def ollama_generate(
     )
 
 class InputData:
-    def __init__(self, input_filename: str, target_model: DeepEvalBaseLLM):
+    def __init__(self, input_filename: str, target_model: DeepEvalBaseLLM, do_eval_input_only: bool = False):
         self.input_filename = input_filename
         self.target_model = target_model
+        self.do_eval_input_only = do_eval_input_only
         with open(input_filename, "r", encoding="utf-8") as f:
             if self.input_filename.endswith(".jsonl"):
                 self.data = [json.loads(line) for line in f if line.strip()]
+            elif self.input_filename.endswith(".json"):
+                self.data = json.load(f)
+                if isinstance(self.data, list):
+                    # Filter out empty items, convert to dicts
+                    self.data = [{'input': item} for item in self.data if item]
+
             elif self.input_filename.endswith(".csv"):
                 reader = csv.reader(f)
                 header = next(reader)
@@ -61,13 +68,14 @@ class InputData:
         )
 
     def generate_test_cases(self, num_max_cases: int = 1, verbose: bool = True) -> Tuple[list, list, int]:
-        orig_test_cases = []
-        def_test_cases  = []
-        case_count      = 0
-        skipped_count   = 0
+        orig_test_cases     = []
+        def_test_cases      = []
+        input_test_cases    = []
+        case_count          = 0
+        skipped_count       = 0
 
         for item in tqdm(self.data):
-            if self.input_filename.endswith(".jsonl"):
+            if self.input_filename.endswith(".jsonl") or self.input_filename.endswith(".json"):
                 if 'ss_prompt' in item and 'input' not in item:
                     item['input'] = item['ss_prompt']
             elif self.input_filename.endswith(".csv"):
@@ -87,36 +95,43 @@ class InputData:
             if verbose:
                 print(f"====== {case_count + 1} ======  Input: {item['input']}")
 
-            if 'def_output' in item:
-                def_test_cases.append(LLMTestCase(
-                    input=item["input"],
-                    actual_output=item["def_output"]
-                ))
-            else:
-                def_test_cases.append(LLMTestCase(
-                    input=item["input"],
-                    actual_output=self.target_model.generate(self.def_sys_prompt, item["input"])[0]
-                ))
-            if verbose:
-                print(f"====== {case_count + 1} ======  Def Output: {def_test_cases[-1].actual_output}")
-            if 'orig_output' in item:
-                orig_test_cases.append(LLMTestCase(
-                    input=item["input"],
-                    actual_output=item["orig_output"]
-                ))
-            else:
-                orig_test_cases.append(LLMTestCase(
-                    input=item["input"],
-                    actual_output=self.target_model.generate("", item["input"])[0]
-                ))
-            if verbose:
-                print(f"====== {case_count + 1} ======  Orig Output: {orig_test_cases[-1].actual_output}")
+            # Skip target model generation if only evaluating input
+            if not self.do_eval_input_only:
+                if 'def_output' in item:
+                    def_test_cases.append(LLMTestCase(
+                        input=item["input"],
+                        actual_output=item["def_output"]
+                    ))
+                else:
+                    def_test_cases.append(LLMTestCase(
+                        input=item["input"],
+                        actual_output=self.target_model.generate(self.def_sys_prompt, item["input"])[0]
+                    ))
+                if verbose:
+                    print(f"====== {case_count + 1} ======  Def Output: {def_test_cases[-1].actual_output}")
+                if 'orig_output' in item:
+                    orig_test_cases.append(LLMTestCase(
+                        input=item["input"],
+                        actual_output=item["orig_output"]
+                    ))
+                else:
+                    orig_test_cases.append(LLMTestCase(
+                        input=item["input"],
+                        actual_output=self.target_model.generate("", item["input"])[0]
+                    ))
+                if verbose:
+                    print(f"====== {case_count + 1} ======  Orig Output: {orig_test_cases[-1].actual_output}")
+
+            input_test_cases.append(LLMTestCase(
+                input=item["input"],
+                actual_output="",
+            ))
 
             case_count += 1
             if num_max_cases > 0 and case_count >= num_max_cases:
                 break
 
-        return orig_test_cases, def_test_cases, skipped_count
+        return orig_test_cases, def_test_cases, input_test_cases, skipped_count
             
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Roleplay Metric")
@@ -126,8 +141,8 @@ if __name__ == "__main__":
                         help="Model to use for judging")
     parser.add_argument("--input_file", type=str, default="adv_bench_sub_gpt3.5.jsonl",
                         help="Input file containing test cases")
-    parser.add_argument("--eval_types", type=str, nargs="+", default=["orig", "def"],
-                        choices=["orig", "def"], help="Output types to generate (orig, def, or both)")
+    parser.add_argument("--eval_types", type=str, nargs="+", default=["orig", "def", "input"],
+                        choices=["orig", "def", "input"], help="Output types to generate (orig, def, or input)")
     parser.add_argument("--max_cases", type=int, default=-1,
                         help="Maximum number of test cases to process (for testing purposes)")
     args = parser.parse_args()
@@ -157,40 +172,55 @@ if __name__ == "__main__":
     skipped_count = 0
     case_count = 0
 
-    # If args.input_file is "adv_bench_sub_gpt3.5.jsonl", 
-    # the output_cache_filename will be "adv_bench_sub_gpt3.5-ollama-llama3.2-3b.jsonl"
-    input_file_trunk = args.input_file.rsplit('.', 1)[0]  # Remove the file extension
-    test_model_name = args.target_model.replace(":", "-")   # Replace ':' with '-' for filename compatibility
-    output_cache_filename = f"{input_file_trunk}-ollama-{test_model_name}.jsonl"
-    # Check if the output cache file already exists
-    if os.path.exists(output_cache_filename):
-        print(f"Output cache file {output_cache_filename} exists. Loading test cases.")
-        # If it exists, we can skip the generation step
-        # Load the test cases from the cache file
-        input_data = InputData(output_cache_filename, target_model)
-        orig_test_cases, def_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
-        case_count = len(def_test_cases)
-    else:            
-        print(f"Output cache file {output_cache_filename} does not exist. Generating new test cases.")
-        # If the output cache file doesn't exist, we need to generate the test cases
-        if os.path.exists(args.input_file):
-            print(f"Reading input file {args.input_file} for test cases.")
-            input_data = InputData(args.input_file, target_model)
-            orig_test_cases, def_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
+    # If only "input" is specified as eval_types.
+    if args.eval_types == ["input"]:
+        args.target_model = "input"
+        do_eval_input_only = True
+    else:
+        do_eval_input_only = False
+    
+    if not do_eval_input_only:
+        # If args.input_file is "adv_bench_sub_gpt3.5.jsonl",
+        # the output_cache_filename will be "adv_bench_sub_gpt3.5-ollama-llama3.2-3b.jsonl"
+        input_file_trunk = args.input_file.rsplit('.', 1)[0]  # Remove the file extension
+        test_model_name = args.target_model.replace(":", "-")   # Replace ':' with '-' for filename compatibility
+        output_cache_filename = f"{input_file_trunk}-ollama-{test_model_name}.jsonl"
+        # Check if the output cache file already exists
+        if os.path.exists(output_cache_filename):
+            print(f"Output cache file {output_cache_filename} exists. Loading test cases.")
+            # If it exists, we can skip the generation step
+            # Load the test cases from the cache file
+            input_data = InputData(output_cache_filename, target_model)
+            orig_test_cases, def_test_cases, input_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
             case_count = len(def_test_cases)
+        else:            
+            print(f"Output cache file {output_cache_filename} does not exist. Generating new test cases.")
+    else:
+        output_cache_filename = None
 
-            print(f"{case_count} valid cases generated, {skipped_count} cases skipped.")
+    # If the output cache file doesn't exist, we need to generate the test cases
+    if os.path.exists(args.input_file):
+        print(f"Reading input file {args.input_file} for test cases.")
+        input_data = InputData(args.input_file, target_model, do_eval_input_only)
+        orig_test_cases, def_test_cases, input_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
+        case_count = len(def_test_cases) if not do_eval_input_only else len(input_test_cases)
+
+        print(f"{case_count} valid cases generated, {skipped_count} cases skipped.")
+        if not do_eval_input_only:
             # Write the test cases to the output cache file
             with open(output_cache_filename, "w", encoding="utf-8") as CACHE:
                 for i in range(case_count):
+                    # If not do_eval_input_only, but "input" is in args.eval_types,
+                    # we don't need to write input test cases to the cache file,
+                    # as they can be generated from the input file immediately.
                     CACHE.write(json.dumps({
                         "input":        def_test_cases[i].input,
                         "def_output":   def_test_cases[i].actual_output,
                         "orig_output":  orig_test_cases[i].actual_output
                     }, ensure_ascii=False) + "\n")
-        else:
-            print(f"Input file {args.input_file} does not exist. Please provide a valid input file.")
-            exit(1)
+    else:
+        print(f"Input file {args.input_file} does not exist. Please provide a valid input file.")
+        exit(1)
 
     async_config = AsyncConfig(run_async=False, max_concurrent=1)
 
@@ -201,3 +231,7 @@ if __name__ == "__main__":
     if "def" in args.eval_types:
         print("Evaluating default outputs...")
         evaluate(test_cases=def_test_cases, metrics=[harm_grader], async_config=async_config)
+
+    if "input" in args.eval_types:
+        print("Evaluating input test cases...")
+        evaluate(test_cases=input_test_cases, metrics=[harm_grader], async_config=async_config)

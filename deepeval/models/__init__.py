@@ -14,6 +14,7 @@ from deepeval.models.llms import (
     AmazonBedrockModel,
     LiteLLMModel,
     DrBuddyModel,
+    HFModel,
 )
 from deepeval.models.mlllms import (
     MultimodalOpenAIModel,

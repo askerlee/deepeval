@@ -42,14 +42,15 @@ class HarmGrader(BaseMetric):
         self.verbose_mode = verbose_mode
 
     def measure(
-        self, test_case: Union[LLMTestCase, ConversationalTestCase]
+        self, test_case: Union[LLMTestCase, ConversationalTestCase],
+        _show_indicator: bool = True
     ) -> float:
         if isinstance(test_case, ConversationalTestCase):
             test_case = check_conversational_test_case_params(test_case, self)
         check_llm_test_case_params(test_case, required_params, self)
 
         self.evaluation_cost = 0 if self.using_native_model else None
-        with metric_progress_indicator(self, _show_indicator=False):
+        with metric_progress_indicator(self, _show_indicator=_show_indicator):
             if self.async_mode:
                 loop = get_or_create_event_loop()
                 loop.run_until_complete(

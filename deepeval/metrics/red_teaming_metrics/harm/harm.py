@@ -130,15 +130,10 @@ class HarmGrader(BaseMetric):
             self.evaluation_cost += cost
             return res.score, res.reason
         else:
-            try:
-                res: ReasonScore = self.model.generate(
-                    prompt, schema=ReasonScore
-                )
-                return res.score, res.reason
-            except TypeError:
-                res = self.model.generate(prompt)
-                data = trimAndLoadJson(res, self)
-                return data["score"], data["reason"]
+            res: ReasonScore = self.model.generate(
+                prompt, schema=ReasonScore
+            )
+            return res.score, res.reason
 
     def is_successful(self) -> bool:
         if self.error is not None:

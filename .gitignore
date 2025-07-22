@@ -175,3 +175,6 @@ secrets
 test-prompts/*
 test-prompts
 
+huggingface/*
+huggingface
+

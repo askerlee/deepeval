@@ -10,9 +10,11 @@ build_transformers_prefix_allowed_tokens_fn,
 )
 
 from deepeval.models import DeepEvalBaseLLM
+from typing import Optional, Tuple, Union, Dict
 
 class HFModel(DeepEvalBaseLLM):
-    def __init__(self, pretrained_model_name_or_path, sys_prompt=None):
+    def __init__(self, pretrained_model_name_or_path, sys_prompt="", device="auto", 
+                 enable_thinking=True, cache_dir=None):
         quantization_config = BitsAndBytesConfig(
                                 load_in_4bit=True,
                                 bnb_4bit_compute_dtype=torch.float16,
@@ -22,9 +24,11 @@ class HFModel(DeepEvalBaseLLM):
 
         model_4bit = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name_or_path,
-            device_map="auto",
+            device_map=device,
             quantization_config=quantization_config,
+            cache_dir=cache_dir,
         )
+
         tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path
         )
@@ -33,11 +37,13 @@ class HFModel(DeepEvalBaseLLM):
         self.model = model_4bit
         self.tokenizer = tokenizer
         self.sys_prompt = sys_prompt
+        self.enable_thinking = enable_thinking
 
     def load_model(self):
         return self.model
 
-    def generate(self, prompt: str, schema: BaseModel) -> BaseModel:
+    # schema should be a type class.
+    def generate(self, prompt: str, schema: Optional[BaseModel] = None) -> BaseModel:
         # Same as the previous example above
         model = self.load_model()
         messages=[
@@ -48,7 +54,7 @@ class HFModel(DeepEvalBaseLLM):
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=True # Switches between thinking and non-thinking modes. Default is True.
+            enable_thinking=self.enable_thinking # Switches between thinking and non-thinking modes.
         )
         pipeline = transformers.pipeline(
             "text-generation",
@@ -71,8 +77,9 @@ class HFModel(DeepEvalBaseLLM):
         )
 
         # Output and load valid JSON
-        output_dict = pipeline(text, prefix_allowed_tokens_fn=prefix_function)
-        output = output_dict[0]["generated_text"][len(text):]
+        with torch.no_grad():
+            output_dict = pipeline(text, prefix_allowed_tokens_fn=prefix_function)
+        output = output_dict[0][0]["generated_text"][len(text[0]):]
         json_result = json.loads(output)
 
         # Return valid JSON object according to the schema DeepEval supplied

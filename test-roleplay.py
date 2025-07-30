@@ -45,10 +45,10 @@ def ollama_sys_generate(
     )
 
 class InputData:
-    def __init__(self, input_filename: str, target_model: DeepEvalBaseLLM, do_eval_input_only: bool = False):
+    def __init__(self, input_filename: str, target_model: DeepEvalBaseLLM, eval_types: Optional[list] = None):
         self.input_filename = input_filename
         self.target_model = target_model
-        self.do_eval_input_only = do_eval_input_only
+        self.eval_types = eval_types
         with open(input_filename, "r", encoding="utf-8") as f:
             if self.input_filename.endswith(".jsonl"):
                 self.data = [json.loads(line) for line in f if line.strip()]
@@ -82,10 +82,12 @@ class InputData:
         orig_test_cases     = []
         def_test_cases      = []
         input_test_cases    = []
+        old_response_test_cases = []
         case_count          = 0
         skipped_count       = 0
 
         for item in tqdm(self.data):
+            # Find the correct input field based on the file type
             if self.input_filename.endswith(".jsonl") or self.input_filename.endswith(".json"):
                 if 'ss_prompt' in item and 'input' not in item:
                     item['input'] = item['ss_prompt']
@@ -106,8 +108,7 @@ class InputData:
             if verbose:
                 print(f"====== {case_count + 1} ======  Input: {item['input']}")
 
-            # Skip target model generation if only evaluating input
-            if not self.do_eval_input_only:
+            if 'def' in self.eval_types: 
                 if 'def_output' in item:
                     def_test_cases.append(LLMTestCase(
                         input=item["input"],
@@ -120,6 +121,8 @@ class InputData:
                     ))
                 if verbose:
                     print(f"====== {case_count + 1} ======  Def Output: {def_test_cases[-1].actual_output}")
+
+            if 'orig' in self.eval_types:
                 if 'orig_output' in item:
                     orig_test_cases.append(LLMTestCase(
                         input=item["input"],
@@ -133,16 +136,29 @@ class InputData:
                 if verbose:
                     print(f"====== {case_count + 1} ======  Orig Output: {orig_test_cases[-1].actual_output}")
 
-            input_test_cases.append(LLMTestCase(
-                input=item["input"],
-                actual_output="",
-            ))
+            # Always generate input test cases, even if 'input' is not in eval_types, 
+            # since it's free lunch.
+            if True: # 'input' in self.eval_types:
+                input_test_cases.append(LLMTestCase(
+                    input=item["input"],
+                    actual_output="",
+                ))
+
+            if 'old-response' in self.eval_types:
+                if 'response' in item:
+                    old_response_test_cases.append(LLMTestCase(
+                        input=item["input"],
+                        actual_output=item["response"]
+                    ))
+                else:
+                    # Shouldn't happen.
+                    breakpoint()
 
             case_count += 1
             if num_max_cases > 0 and case_count >= num_max_cases:
                 break
 
-        return orig_test_cases, def_test_cases, input_test_cases, skipped_count
+        return orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, skipped_count
             
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Roleplay Metric")
@@ -154,8 +170,8 @@ if __name__ == "__main__":
                         help="Hugging Face cache directory")
     parser.add_argument("--input_file", type=str, default="adv_bench_sub_gpt3.5.jsonl",
                         help="Input file containing test cases")
-    parser.add_argument("--eval_types", type=str, nargs="+", default=["orig", "def", "input"],
-                        choices=["orig", "def", "input"], help="Output types to generate (orig, def, or input)")
+    parser.add_argument("--eval_types", type=str, nargs="+", default=["orig", "def", "input", "old-response"],
+                        choices=["orig", "def", "input", "old-response"], help="Output types to generate (orig, def, or input)")
     parser.add_argument("--max_cases", type=int, default=-1,
                         help="Maximum number of test cases to process (for testing purposes)")
     parser.add_argument("--hf_model_device", type=str, default="auto",
@@ -167,12 +183,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-    # If only "input" is specified as eval_types.
-    if args.eval_types == ["input"]:
-        do_eval_input_only = True
-        args.target_model = "input"
+    # If only "input" or "old-response" is specified as eval_types.
+    if args.eval_types == ["input"] or args.eval_types == ["old-response"]:
+        no_regeneration = True
+        args.target_model = args.eval_types[0]
     else:
-        do_eval_input_only = False
+        no_regeneration = False
 
     models = []
     for model_sig, model_name in zip(("target", "judge"), (args.target_model, args.judge_model)):
@@ -209,9 +225,9 @@ if __name__ == "__main__":
             # NOTE: judge model should never be DrBuddyModel, and only target model can be DrBuddyModel.
             model = DrBuddyModel(base_url="http://172.20.117.173:5000/query")
             print(f"DrBuddy model {model_name} initialized as the {model_sig}")
-        elif model_name == 'input':
+        elif model_name == 'input' or model_name == 'old-response':
             model = None
-            print(f"Input directly used as the {model_sig}")
+            print(f"{model_name} directly used as the {model_sig}")
         else:
             breakpoint()
 
@@ -234,7 +250,7 @@ if __name__ == "__main__":
     skipped_count = 0
     case_count = 0
     
-    if not do_eval_input_only:
+    if not no_regeneration:
         # If args.input_file is "adv_bench_sub_gpt3.5.jsonl",
         # the output_cache_filename will be "adv_bench_sub_gpt3.5-ollama-llama3.2-3b.jsonl"
         input_file_trunk = args.input_file.rsplit('.', 1)[0]  # Remove the file extension
@@ -245,8 +261,8 @@ if __name__ == "__main__":
             print(f"Output cache file {output_cache_filename} exists. Loading test cases.")
             # If it exists, we can skip the generation step
             # Load the test cases from the cache file
-            input_data = InputData(output_cache_filename, target_model)
-            orig_test_cases, def_test_cases, input_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
+            input_data = InputData(output_cache_filename, target_model, eval_types=args.eval_types)
+            orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
             case_count = len(def_test_cases)
         else:            
             print(f"Output cache file {output_cache_filename} does not exist. Generating new test cases.")
@@ -256,16 +272,16 @@ if __name__ == "__main__":
     # If the output cache file doesn't exist, we need to generate the test cases
     if os.path.exists(args.input_file):
         print(f"Reading input file {args.input_file} for test cases.")
-        input_data = InputData(args.input_file, target_model, do_eval_input_only)
-        orig_test_cases, def_test_cases, input_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
-        case_count = len(def_test_cases) if not do_eval_input_only else len(input_test_cases)
+        input_data = InputData(args.input_file, target_model, eval_types=args.eval_types)
+        orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
+        case_count = len(def_test_cases) if not no_regeneration else len(input_test_cases)
 
         print(f"{case_count} valid cases generated, {skipped_count} cases skipped.")
-        if not do_eval_input_only:
+        if not no_regeneration:
             # Write the test cases to the output cache file
             with open(output_cache_filename, "w", encoding="utf-8") as CACHE:
                 for i in range(case_count):
-                    # If not do_eval_input_only, but "input" is in args.eval_types,
+                    # If not no_regeneration, but "input" is in args.eval_types,
                     # we don't need to write input test cases to the cache file,
                     # as they can be generated from the input file immediately.
                     CACHE.write(json.dumps({
@@ -295,6 +311,14 @@ if __name__ == "__main__":
                  display_config=display_config)
         end_time = time.time()
         print(f"def evaluation completed in {end_time - start_time:.2f} seconds.")
+
+    if "old-response" in args.eval_types:
+        print("Evaluating old response outputs...")
+        start_time = time.time()
+        evaluate(test_cases=old_response_test_cases, metrics=[harm_grader], async_config=async_config,
+                 display_config=display_config)
+        end_time = time.time()
+        print(f"old-response evaluation completed in {end_time - start_time:.2f} seconds.")
 
     if "input" in args.eval_types:
         print("Evaluating input test cases...")

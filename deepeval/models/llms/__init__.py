@@ -8,6 +8,7 @@ from .amazon_bedrock_model import AmazonBedrockModel
 from .litellm_model import LiteLLMModel
 from .drbuddy_model import DrBuddyModel
 from .hf_model import HFModel
+from .together_model import TogetherModel
 
 __all__ = [
     "AzureOpenAIModel",
@@ -19,5 +20,6 @@ __all__ = [
     "AmazonBedrockModel",
     "LiteLLMModel",
     "DrBuddyModel",
-    "HFModel"
+    "HFModel",
+    "TogetherModel",
 ]

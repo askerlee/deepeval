@@ -15,6 +15,7 @@ from deepeval.models.llms import (
     LiteLLMModel,
     DrBuddyModel,
     HFModel,
+    TogetherModel,
 )
 from deepeval.models.mlllms import (
     MultimodalOpenAIModel,

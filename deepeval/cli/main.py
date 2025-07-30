@@ -200,6 +200,25 @@ def unset_openai_env():
 # Azure Integration ########################
 #############################################
 
+@app.command(name="set-together")
+def set_together_env(
+    together_api_key: str = typer.Option(
+        ...,
+        "--together-api-key",
+        help="API key for Together AI",
+    )
+):
+    KEY_FILE_HANDLER.write_key(KeyValues.TOGETHER_API_KEY, together_api_key)
+    print(
+        ":raising_hands: Congratulations! You're now ready to use Together AI for evals that require an LLM."
+    )
+
+@app.command(name="unset-together")
+def unset_together_env():
+    KEY_FILE_HANDLER.remove_key(KeyValues.TOGETHER_API_KEY)
+    print(
+        ":raising_hands: Congratulations! You have removed Together AI from your environment."
+    )
 
 @app.command(name="set-azure-openai")
 def set_azure_openai_env(

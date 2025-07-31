@@ -501,7 +501,7 @@ class TestRunManager:
             try:
                 with portalocker.Lock(
                     self.temp_file_path,
-                    mode="r+",
+                    mode="a+",
                     flags=portalocker.LOCK_EX,
                 ) as file:
                     file.seek(0)

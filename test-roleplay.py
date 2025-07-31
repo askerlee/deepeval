@@ -44,6 +44,29 @@ def ollama_sys_generate(
         0,
     )
 
+class IndexRanges:
+    def __init__(self, ranges: str):
+        # ranges: "0-10,20-30,40-50" (not inclusive of the upper bounds)
+        self.ranges = []
+        if ranges:
+            for r in ranges.split(","):
+                if "-" in r:
+                    lb, ub = map(int, r.split("-"))
+                    self.ranges.append((lb, ub))
+                else:
+                    idx = int(r)
+                    self.ranges.append((idx, idx + 1))
+
+    def is_non_empty(self) -> bool:
+        return len(self.ranges) > 0
+    
+    # 'in' operator to check if an index is in the specified ranges
+    def __contains__(self, index: int) -> bool:
+        for lb, ub in self.ranges:
+            if lb <= index < ub:
+                return True
+        return False
+    
 class InputData:
     def __init__(self, input_filename: str, target_model: DeepEvalBaseLLM, eval_types: Optional[list] = None):
         self.input_filename = input_filename
@@ -78,15 +101,20 @@ class InputData:
             "a polite and professional tone, and gently redirect the user if possible."
         )
 
-    def generate_test_cases(self, num_max_cases: int = 1, verbose: bool = True) -> Tuple[list, list, int]:
+    def generate_test_cases(self, case_ranges: str, verbose: bool = True) -> Tuple[list, list, int]:
         orig_test_cases     = []
         def_test_cases      = []
         input_test_cases    = []
         old_response_test_cases = []
-        case_count          = 0
         skipped_count       = 0
+        # case_ranges: str, e.g., "0-10,20-30,40-50" -> [(0, 10), (20, 30), (40, 50)]
+        case_ranges = IndexRanges(case_ranges) 
 
-        for item in tqdm(self.data):
+        for idx, item in tqdm(enumerate(self.data), total=len(self.data)):
+            # If case_ranges is specified and the case index is not in the specified ranges,
+            # we skip it. Otherwise, we process the case.
+            if case_ranges.is_non_empty() and (idx not in case_ranges):
+                continue
             # Find the correct input field based on the file type
             if self.input_filename.endswith(".jsonl") or self.input_filename.endswith(".json"):
                 if 'ss_prompt' in item and 'input' not in item:
@@ -106,7 +134,7 @@ class InputData:
                 raise ValueError("Input field is missing in the data item.")
             
             if verbose:
-                print(f"====== {case_count + 1} ======  Input: {item['input']}")
+                print(f"====== {idx} ======  Input: {item['input']}")
 
             if 'def' in self.eval_types: 
                 if 'def_output' in item:
@@ -120,7 +148,7 @@ class InputData:
                         actual_output=self.target_model.generate(item["input"], sys_prompt=self.sys_prompt)[0]
                     ))
                 if verbose:
-                    print(f"====== {case_count + 1} ======  Def Output: {def_test_cases[-1].actual_output}")
+                    print(f"====== {idx} ======  Def Output: {def_test_cases[-1].actual_output}")
 
             if 'orig' in self.eval_types:
                 if 'orig_output' in item:
@@ -134,7 +162,7 @@ class InputData:
                         actual_output=self.target_model.generate("", item["input"])[0]
                     ))
                 if verbose:
-                    print(f"====== {case_count + 1} ======  Orig Output: {orig_test_cases[-1].actual_output}")
+                    print(f"====== {idx} ======  Orig Output: {orig_test_cases[-1].actual_output}")
 
             # Always generate input test cases, even if 'input' is not in eval_types, 
             # since it's free lunch.
@@ -154,10 +182,6 @@ class InputData:
                     # Shouldn't happen.
                     breakpoint()
 
-            case_count += 1
-            if num_max_cases > 0 and case_count >= num_max_cases:
-                break
-
         return orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, skipped_count
             
 if __name__ == "__main__":
@@ -172,8 +196,8 @@ if __name__ == "__main__":
                         help="Input file containing test cases")
     parser.add_argument("--eval_types", type=str, nargs="+", default=["orig", "def", "input", "old-response"],
                         choices=["orig", "def", "input", "old-response"], help="Output types to generate (orig, def, or input)")
-    parser.add_argument("--max_cases", type=int, default=-1,
-                        help="Maximum number of test cases to process (for testing purposes)")
+    parser.add_argument("--case_ranges", type=str, default=None,
+                        help="Range of indices of test cases to process")
     parser.add_argument("--hf_model_device", type=str, default="auto",
                         help="Device to use for Hugging Face model (e.g., 'cpu', 'cuda:0', 'auto')")
     parser.add_argument("--enable_thinking", type=str2bool, default=True,
@@ -262,7 +286,7 @@ if __name__ == "__main__":
             # If it exists, we can skip the generation step
             # Load the test cases from the cache file
             input_data = InputData(output_cache_filename, target_model, eval_types=args.eval_types)
-            orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
+            orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, skipped_count = input_data.generate_test_cases(args.case_ranges, verbose=True)
             case_count = len(def_test_cases)
         else:            
             print(f"Output cache file {output_cache_filename} does not exist. Generating new test cases.")
@@ -273,7 +297,7 @@ if __name__ == "__main__":
     if os.path.exists(args.input_file):
         print(f"Reading input file {args.input_file} for test cases.")
         input_data = InputData(args.input_file, target_model, eval_types=args.eval_types)
-        orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, skipped_count = input_data.generate_test_cases(args.max_cases, verbose=True)
+        orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, skipped_count = input_data.generate_test_cases(args.case_ranges, verbose=True)
         case_count = len(def_test_cases) if not no_regeneration else len(input_test_cases)
 
         print(f"{case_count} valid cases generated, {skipped_count} cases skipped.")
@@ -295,12 +319,13 @@ if __name__ == "__main__":
 
     async_config    = AsyncConfig(run_async=False, max_concurrent=1)
     display_config  = DisplayConfig(show_indicator=not args.debug, print_results=True)
-    
+    cache_config    = CacheConfig(write_cache=True, use_cache=False)
+
     if "orig" in args.eval_types:
         print("Evaluating original outputs...")
         start_time = time.time()
         evaluate(test_cases=orig_test_cases, metrics=[harm_grader], async_config=async_config,
-                 display_config=display_config)
+                 display_config=display_config, cache_config=cache_config)
         end_time = time.time()
         print(f"orig evaluation completed in {end_time - start_time:.2f} seconds.")
 
@@ -308,7 +333,7 @@ if __name__ == "__main__":
         print("Evaluating default outputs...")
         start_time = time.time()
         evaluate(test_cases=def_test_cases, metrics=[harm_grader], async_config=async_config,
-                 display_config=display_config)
+                 display_config=display_config, cache_config=cache_config)
         end_time = time.time()
         print(f"def evaluation completed in {end_time - start_time:.2f} seconds.")
 
@@ -316,7 +341,7 @@ if __name__ == "__main__":
         print("Evaluating old response outputs...")
         start_time = time.time()
         evaluate(test_cases=old_response_test_cases, metrics=[harm_grader], async_config=async_config,
-                 display_config=display_config)
+                 display_config=display_config, cache_config=cache_config)
         end_time = time.time()
         print(f"old-response evaluation completed in {end_time - start_time:.2f} seconds.")
 
@@ -324,6 +349,6 @@ if __name__ == "__main__":
         print("Evaluating input test cases...")
         start_time = time.time()
         evaluate(test_cases=input_test_cases, metrics=[harm_grader], async_config=async_config,
-                 display_config=display_config)
+                 display_config=display_config, cache_config=cache_config)
         end_time = time.time()
         print(f"input evaluation completed in {end_time - start_time:.2f} seconds.")

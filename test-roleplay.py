@@ -248,8 +248,8 @@ if __name__ == "__main__":
                         help="Device to use for Hugging Face model (e.g., 'cpu', 'cuda:0', 'auto')")
     parser.add_argument("--enable_thinking", type=str2bool, default=True,
                         help="Enable thinking mode for Hugging Face model (default is True)")
-    parser.add_argument("--do_base64", type=str2bool, default=False,
-                        help="Enable base64 encoding/decoding (default is False)")
+    parser.add_argument("--do_base64", type=str2bool, default=True,
+                        help="If True, save/load base64, as well as plain text. If False, only plain text.")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug mode")
     args = parser.parse_args()
@@ -330,17 +330,24 @@ if __name__ == "__main__":
         # the output_cache_filename will be "adv_bench_sub_gpt3.5-ollama-llama3.2-3b.jsonl"
         input_file_trunk = args.input_file.rsplit('.', 1)[0]  # Remove the file extension
         test_model_name  = args.target_model.replace(":", "-")   # Replace ':' with '-' for filename compatibility
-        if args.do_base64:
-            output_cache_filename = f"{input_file_trunk}-{test_model_name}-base64.jsonl"
-        else:
-            output_cache_filename = f"{input_file_trunk}-{test_model_name}.jsonl"
+        output_cache_filename        = f"{input_file_trunk}-{test_model_name}.jsonl"
+        output_cache_filename_base64 = f"{input_file_trunk}-{test_model_name}-base64.jsonl"
 
-        # Check if the output cache file already exists
-        if os.path.exists(output_cache_filename):
-            print(f"Output cache file {output_cache_filename} exists. Loading test cases.")
+        # Check if the output cache file exists. Either plain text or base64 file is fine.
+        if os.path.exists(output_cache_filename) or os.path.exists(output_cache_filename_base64):
+            # If the plain text file doesn't exist, fall back to the base64 file.
+            if not os.path.exists(output_cache_filename):
+                output_cache_filename_loaded = output_cache_filename_base64
+                # We have to use base64.
+                args.do_base64 = True
+            else:
+                output_cache_filename_loaded = output_cache_filename
+
+            print(f"Output cache file {output_cache_filename_loaded} exists. Loading test cases.")
             # If it exists, we can skip the generation step
             # Load the test cases from the cache file
-            input_data = InputData(output_cache_filename, target_model, eval_types=args.eval_types)
+            input_data = InputData(output_cache_filename_loaded, target_model, eval_types=args.eval_types)
+            # do_base64 = True on plain text file is ok, since when decoding we will test if it's indeed base64.
             orig_test_cases, def_test_cases, input_test_cases, \
             old_response_test_cases, skipped_count = \
                 input_data.generate_test_cases(args.case_ranges, additional_metadata=additional_metadata, 
@@ -357,26 +364,42 @@ if __name__ == "__main__":
         input_data = InputData(args.input_file, target_model, eval_types=args.eval_types)
         # If the output is not present in the input file, generate_test_cases() will generate the test cases.
         # Otherwise, it will use the existing output from the input file.
+        # Not loaded_from_cache. So base64 will never be used (base64 is only used for cached output files).
         orig_test_cases, def_test_cases, input_test_cases, \
         old_response_test_cases, skipped_count = \
             input_data.generate_test_cases(args.case_ranges, additional_metadata=additional_metadata, 
-                                           do_base64=args.do_base64, verbose=True)
+                                           do_base64=False, verbose=True)
         case_count = len(input_test_cases)
 
         print(f"{case_count} valid cases generated, {skipped_count} cases skipped.")
         if do_regeneration:
-            # Write the test cases to the output cache file
+            # Write the test cases to the plain text output cache file
             with open(output_cache_filename, "w", encoding="utf-8") as CACHE:
                 for i in range(case_count):
                     test_case_dict = { "input": input_test_cases[i].input }
                     if "orig" in args.eval_types:
-                        test_case_dict["orig_output"]  = cond_base64_encode(orig_test_cases[i].actual_output, do_base64=args.do_base64)
+                        test_case_dict["orig_output"]  = orig_test_cases[i].actual_output
                     if "def" in args.eval_types:
-                        test_case_dict["def_output"]   = cond_base64_encode(def_test_cases[i].actual_output, do_base64=args.do_base64)
+                        test_case_dict["def_output"]   = def_test_cases[i].actual_output
                     if "old-response" in args.eval_types:
-                        test_case_dict["old-response"] = cond_base64_encode(old_response_test_cases[i].actual_output, do_base64=args.do_base64)
+                        test_case_dict["old-response"] = old_response_test_cases[i].actual_output
 
                     CACHE.write(json.dumps(test_case_dict, ensure_ascii=False) + "\n")
+
+            if args.do_base64:
+                # If args.do_base64, then also write the test cases to the base64 output cache file.
+                with open(output_cache_filename_base64, "w", encoding="utf-8") as CACHE_BASE64:
+                    for i in range(case_count):
+                        test_case_dict = { "input": input_test_cases[i].input }
+                        if "orig" in args.eval_types:
+                            test_case_dict["orig_output"]  = cond_base64_encode(orig_test_cases[i].actual_output, do_base64=True)
+                        if "def" in args.eval_types:
+                            test_case_dict["def_output"]   = cond_base64_encode(def_test_cases[i].actual_output, do_base64=True)
+                        if "old-response" in args.eval_types:
+                            test_case_dict["old-response"] = cond_base64_encode(old_response_test_cases[i].actual_output, do_base64=True)
+
+                        CACHE_BASE64.write(json.dumps(test_case_dict, ensure_ascii=False) + "\n")
+
     else:
         print(f"Input file {args.input_file} does not exist. Please provide a valid input file.")
         exit(1)

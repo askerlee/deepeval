@@ -400,7 +400,7 @@ if __name__ == "__main__":
 
                         CACHE_BASE64.write(json.dumps(test_case_dict, ensure_ascii=False) + "\n")
 
-    else:
+    elif not os.path.exists(args.input_file):
         print(f"Input file {args.input_file} does not exist. Please provide a valid input file.")
         exit(1)
 

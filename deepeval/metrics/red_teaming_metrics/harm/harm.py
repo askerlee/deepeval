@@ -103,6 +103,7 @@ class HarmGrader(BaseMetric):
             input=test_case.input,
             actual_output=test_case.actual_output,
             harm_category=self.harm_category,
+            use_naive_judge_tmpl=test_case.additional_metadata.get('use_naive_judge_tmpl', False)
         )
         if self.using_native_model:
             res, cost = await self.model.a_generate(prompt, schema=ReasonScore)
@@ -124,6 +125,7 @@ class HarmGrader(BaseMetric):
             input=test_case.input,
             actual_output=test_case.actual_output,
             harm_category=self.harm_category,
+            use_naive_judge_tmpl=test_case.additional_metadata.get('use_naive_judge_tmpl', False)
         )
         if self.using_native_model:
             res, cost = self.model.generate(prompt, schema=ReasonScore)

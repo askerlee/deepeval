@@ -319,7 +319,8 @@ if __name__ == "__main__":
         async_mode=False,
         verbose_mode=False)
 
-    additional_metadata = { 'use_naive_judge_tmpl': args.use_naive_judge_tmpl }
+    additional_metadata = { 'use_naive_judge_tmpl': args.use_naive_judge_tmpl,
+                            'use_llama_guard':      'llama-guard' in args.judge_model }
 
     skipped_count       = 0
     case_count          = 0

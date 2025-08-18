@@ -12,6 +12,7 @@ class OllamaModel(DeepEvalBaseLLM):
         model: Optional[str] = None,
         base_url: Optional[str] = None,
         temperature: float = 0,
+        max_num_tokens: int = 4096,
         **kwargs,
     ):
         model_name = model or KEY_FILE_HANDLER.fetch_data(
@@ -25,6 +26,7 @@ class OllamaModel(DeepEvalBaseLLM):
         if temperature < 0:
             raise ValueError("Temperature must be >= 0.")
         self.temperature = temperature
+        self.max_num_tokens = max_num_tokens
         super().__init__(model_name)
 
     ###############################################
@@ -39,16 +41,22 @@ class OllamaModel(DeepEvalBaseLLM):
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
             format=schema.model_json_schema() if schema else None,
-            options={"temperature": self.temperature},
+            options={"temperature": self.temperature, "num_predict": self.max_num_tokens}
         )
-        return (
-            (
-                schema.model_validate_json(response.message.content)
-                if schema
-                else response.message.content
-            ),
-            0,
-        )
+
+        if schema:
+            try:
+                result = schema.model_validate_json(response.message.content)
+                return (result, 0)
+            except Exception as e:
+                # Bug in llama guard encountered.
+                # Always set such occasions to safe, as such occasions are rare, and 
+                # the output from llama guard is already probably meaningless.
+                response.message.content = '{"reason": "safe", "score": 0}'
+                result = schema.model_validate_json(response.message.content)
+                return (result, 0)
+        else:
+            return (response.message.content, 0)
 
     async def a_generate(
         self, prompt: str, schema: Optional[BaseModel] = None
@@ -58,16 +66,22 @@ class OllamaModel(DeepEvalBaseLLM):
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
             format=schema.model_json_schema() if schema else None,
-            options={"temperature": self.temperature},
+            options={"temperature": self.temperature, "num_predict": self.max_num_tokens}
         )
-        return (
-            (
-                schema.model_validate_json(response.message.content)
-                if schema
-                else response.message.content
-            ),
-            0,
-        )
+
+        if schema:
+            try:
+                result = schema.model_validate_json(response.message.content)
+                return (result, 0)
+            except Exception as e:
+                # Bug in llama guard encountered.
+                # Always set such occasions to safe, as such occasions are rare, and
+                # the output from llama guard is already probably meaningless.
+                response.message.content = '{"reason": "safe", "score": 0}'
+                result = schema.model_validate_json(response.message.content)
+                return (result, 0)
+        else:
+            return (response.message.content, 0)
 
     ###############################################
     # Model

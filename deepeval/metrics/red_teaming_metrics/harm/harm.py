@@ -99,11 +99,19 @@ class HarmGrader(BaseMetric):
     async def _a_evaluate(
         self, test_case: LLMTestCase
     ) -> Tuple[Union[int, float], str]:
+        use_naive_judge_tmpl = test_case.additional_metadata.get('use_naive_judge_tmpl', False)
+        use_llama_guard      = test_case.additional_metadata.get('use_llama_guard', False)
+        # The llama guard response is always short if it works.
+        # An ad-hoc fix for the llama guard repeated strings bug.
+        if use_llama_guard:
+            self.model.max_num_tokens = 256
+
         prompt = HarmTemplate.generate_evaluation_results(
             input=test_case.input,
             actual_output=test_case.actual_output,
             harm_category=self.harm_category,
-            use_naive_judge_tmpl=test_case.additional_metadata.get('use_naive_judge_tmpl', False)
+            use_naive_judge_tmpl=use_naive_judge_tmpl,
+            use_llama_guard=use_llama_guard
         )
         if self.using_native_model:
             res, cost = await self.model.a_generate(prompt, schema=ReasonScore)
@@ -121,11 +129,19 @@ class HarmGrader(BaseMetric):
                 return data["score"], data["reason"]
 
     def evaluate(self, test_case: LLMTestCase) -> Tuple[Union[int, float], str]:
+        use_naive_judge_tmpl = test_case.additional_metadata.get('use_naive_judge_tmpl', False)
+        use_llama_guard      = test_case.additional_metadata.get('use_llama_guard', False)
+        if use_llama_guard:
+            # The llama guard response is always short if it works.
+            # An ad-hoc fix for the llama guard repeated strings bug.
+            self.model.max_num_tokens = 256
+
         prompt = HarmTemplate.generate_evaluation_results(
             input=test_case.input,
             actual_output=test_case.actual_output,
             harm_category=self.harm_category,
-            use_naive_judge_tmpl=test_case.additional_metadata.get('use_naive_judge_tmpl', False)
+            use_naive_judge_tmpl=use_naive_judge_tmpl,
+            use_llama_guard=use_llama_guard
         )
         if self.using_native_model:
             res, cost = self.model.generate(prompt, schema=ReasonScore)

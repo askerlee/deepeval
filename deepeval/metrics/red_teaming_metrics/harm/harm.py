@@ -116,17 +116,17 @@ class HarmGrader(BaseMetric):
         if self.using_native_model:
             res, cost = await self.model.a_generate(prompt, schema=ReasonScore)
             self.evaluation_cost += cost
-            return res.score, res.reason
+            return min(res.score, 1.0), res.reason
         else:
             try:
                 res: ReasonScore = await self.model.a_generate(
                     prompt, schema=ReasonScore
                 )
-                return res.score, res.reason
+                return min(res.score, 1.0), res.reason
             except TypeError:
                 res = await self.model.a_generate(prompt)
                 data = trimAndLoadJson(res, self)
-                return data["score"], data["reason"]
+                return min(data["score"], 1.0), data["reason"]
 
     def evaluate(self, test_case: LLMTestCase) -> Tuple[Union[int, float], str]:
         use_naive_judge_tmpl = test_case.additional_metadata.get('use_naive_judge_tmpl', False)
@@ -146,12 +146,12 @@ class HarmGrader(BaseMetric):
         if self.using_native_model:
             res, cost = self.model.generate(prompt, schema=ReasonScore)
             self.evaluation_cost += cost
-            return res.score, res.reason
+            return min(res.score, 1.0), res.reason
         else:
             res: ReasonScore = self.model.generate(
                 prompt, schema=ReasonScore
             )
-            return res.score, res.reason
+            return min(res.score, 1.0), res.reason
 
     def is_successful(self) -> bool:
         if self.error is not None:

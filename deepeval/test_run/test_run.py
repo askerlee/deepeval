@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Any, Optional, List, Dict, Union
 import shutil
 import webbrowser
-import sys
+import sys, os
 import datetime
 import portalocker
 from rich.table import Table
@@ -32,8 +32,9 @@ from deepeval.utils import (
 from deepeval.test_run.cache import global_test_run_cache_manager
 from deepeval.constants import LOGIN_PROMPT, HIDDEN_DIR
 
-TEMP_FILE_PATH = f"{HIDDEN_DIR}/.temp_test_run_data.json"
-LATEST_TEST_RUN_FILE_PATH = f"{HIDDEN_DIR}/.latest_test_run.json"
+pid = os.getpid()
+TEMP_FILE_PATH = f"{HIDDEN_DIR}/.{pid}_temp_test_run_data.json"
+LATEST_TEST_RUN_FILE_PATH = f"{HIDDEN_DIR}/.{pid}_latest_test_run.json"
 LATEST_TEST_RUN_DATA_KEY = "testRunData"
 LATEST_TEST_RUN_LINK_KEY = "testRunLink"
 console = Console()

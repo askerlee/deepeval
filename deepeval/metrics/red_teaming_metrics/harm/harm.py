@@ -104,6 +104,7 @@ class HarmGrader(BaseMetric):
         # The llama guard response is always short if it works.
         # An ad-hoc fix for the llama guard repeated strings bug.
         if use_llama_guard:
+            model_max_num_tokens = self.model.max_num_tokens
             self.model.max_num_tokens = 256
 
         prompt = HarmTemplate.generate_evaluation_results(
@@ -115,6 +116,10 @@ class HarmGrader(BaseMetric):
         )
         if self.using_native_model:
             res, cost = await self.model.a_generate(prompt, schema=ReasonScore)
+            # Restore the max_num_tokens, in case the model instance 
+            # is shared for both judge and target generation.
+            if use_llama_guard:
+                self.model.max_num_tokens = model_max_num_tokens 
             self.evaluation_cost += cost
             return min(res.score, 1.0), res.reason
         else:
@@ -122,6 +127,10 @@ class HarmGrader(BaseMetric):
                 res: ReasonScore = await self.model.a_generate(
                     prompt, schema=ReasonScore
                 )
+                # Restore the max_num_tokens, in case the model instance 
+                # is shared for both judge and target generation.
+                if use_llama_guard:
+                    self.model.max_num_tokens = model_max_num_tokens 
                 return min(res.score, 1.0), res.reason
             except TypeError:
                 res = await self.model.a_generate(prompt)
@@ -134,6 +143,7 @@ class HarmGrader(BaseMetric):
         if use_llama_guard:
             # The llama guard response is always short if it works.
             # An ad-hoc fix for the llama guard repeated strings bug.
+            model_max_num_tokens = self.model.max_num_tokens
             self.model.max_num_tokens = 256
 
         prompt = HarmTemplate.generate_evaluation_results(
@@ -145,12 +155,20 @@ class HarmGrader(BaseMetric):
         )
         if self.using_native_model:
             res, cost = self.model.generate(prompt, schema=ReasonScore)
+            # Restore the max_num_tokens, in case the model instance 
+            # is shared for both judge and target generation.
+            if use_llama_guard:
+                self.model.max_num_tokens = model_max_num_tokens
             self.evaluation_cost += cost
             return min(res.score, 1.0), res.reason
         else:
             res: ReasonScore = self.model.generate(
                 prompt, schema=ReasonScore
             )
+            # Restore the max_num_tokens, in case the model instance 
+            # is shared for both judge and target generation.
+            if use_llama_guard:
+                self.model.max_num_tokens = model_max_num_tokens
             return min(res.score, 1.0), res.reason
 
     def is_successful(self) -> bool:

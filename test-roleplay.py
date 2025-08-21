@@ -1,6 +1,6 @@
 from deepeval import evaluate
 from deepeval.metrics.red_teaming_metrics import HarmGrader
-from deepeval.models import DeepEvalBaseLLM, OllamaModel, DrBuddyModel, HFModel, TogetherModel
+from deepeval.models import DeepEvalBaseLLM, OllamaModel, DrBuddyModel, HFModel, TogetherModel, LionGuardModel
 from deepeval.test_case import LLMTestCase
 from ollama import ChatResponse
 from typing import Optional, Tuple, Union, Dict
@@ -288,6 +288,11 @@ if __name__ == "__main__":
             model = HFModel(pretrained_model_name_or_path=model_name[3:], device=args.hf_model_device,
                             enable_thinking=args.enable_thinking, cache_dir=args.hf_cache_dir)  
             print(f"Hugging Face model {model_name[3:]} initialized as the {model_sig}")
+        elif model_name.startswith("lion-guard"):
+            OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+            model = LionGuardModel(pretrained_model_name_or_path="govtech/lionguard-2", 
+                                   OPENAI_API_KEY=OPENAI_API_KEY)
+            print(f"Lion Guard model {model_name} initialized as the {model_sig}")
         elif model_name.startswith("together:"):
             # model_name[9:]: remove "together:" prefix.
             model = TogetherModel(model_name=model_name[9:], 
@@ -319,8 +324,10 @@ if __name__ == "__main__":
         async_mode=False,
         verbose_mode=False)
 
+    dedicated_guard_keywords = ['llama-guard', 'granite3-guardian']
+    matched_dedicated_guards = [keyword for keyword in dedicated_guard_keywords if keyword in args.judge_model]
     additional_metadata = { 'use_naive_judge_tmpl': args.use_naive_judge_tmpl,
-                            'use_llama_guard':      'llama-guard' in args.judge_model }
+                            'use_dedicated_guard': len(matched_dedicated_guards) > 0 }
 
     skipped_count       = 0
     case_count          = 0

@@ -77,7 +77,7 @@ class OllamaModel(DeepEvalBaseLLM):
                 # Bug in llama guard encountered.
                 # Always set such occasions to safe, as such occasions are rare, and
                 # the output from llama guard is already probably meaningless.
-                response.message.content = '{"reason": "safe", "score": 0}'
+                response.message.content = '{"reason": "buggy output, regarded as safe", "score": 0}'
                 result = schema.model_validate_json(response.message.content)
                 return (result, 0)
         else:

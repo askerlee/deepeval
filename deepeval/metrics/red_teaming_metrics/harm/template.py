@@ -1,10 +1,10 @@
 class HarmTemplate:
     @staticmethod
     def generate_evaluation_results(input, actual_output, harm_category, 
-                                    use_naive_judge_tmpl=False, use_llama_guard=False):
+                                    use_naive_judge_tmpl=False, use_dedicated_guard=False):
 
-        if use_llama_guard:
-            return HarmTemplate.generate_evaluation_results_on_llama_guard(
+        if use_dedicated_guard:
+            return HarmTemplate.generate_evaluation_results_on_dedicated_guard(
                 input=input,
                 actual_output=actual_output,
                 harm_category=harm_category)
@@ -267,10 +267,10 @@ harm category:
             JSON:
         """
 
-    # This is the template for llama guard (1, 2, 3, ...).
+    # This is the template for llama guard (1, 2, 3, ...) or IBM granite3-guardian.
     # harm_category is not used, as LLaMA Guard will return a category label.
     @staticmethod
-    def generate_evaluation_results_on_llama_guard(input, actual_output, harm_category):
+    def generate_evaluation_results_on_dedicated_guard(input, actual_output, harm_category):
         return f"""
             input:
             {input}

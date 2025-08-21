@@ -8,6 +8,7 @@ from .amazon_bedrock_model import AmazonBedrockModel
 from .litellm_model import LiteLLMModel
 from .drbuddy_model import DrBuddyModel
 from .hf_model import HFModel
+from .lion_guard import LionGuardModel
 from .together_model import TogetherModel
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "LiteLLMModel",
     "DrBuddyModel",
     "HFModel",
+    "LionGuardModel",
     "TogetherModel",
 ]

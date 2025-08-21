@@ -256,7 +256,8 @@ if __name__ == "__main__":
 
 
     # If only "input" or "old-response" is specified as eval_types.
-    if args.eval_types == ["input"] or args.eval_types == ["old-response"]:
+    # If input_file is already .jsonl (the cache file), we also skip regeneration.
+    if args.eval_types in ["input", "old-response"] or args.input_file.endswith(".jsonl"):
         do_regeneration = False
         args.target_model = args.eval_types[0]
     else:
@@ -302,9 +303,9 @@ if __name__ == "__main__":
             # NOTE: judge model should never be DrBuddyModel, and only target model can be DrBuddyModel.
             model = DrBuddyModel(base_url="http://172.20.117.173:5000/query")
             print(f"DrBuddy model {model_name} initialized as the {model_sig}")
-        elif model_name == 'input' or model_name == 'old-response':
+        elif (not do_regeneration):
             model = None
-            print(f"{model_name} directly used as the {model_sig}")
+            print(f"{args.input_file} {args.eval_types} directly used")
         else:
             breakpoint()
 

@@ -325,6 +325,8 @@ if __name__ == "__main__":
         async_mode=False,
         verbose_mode=False)
 
+    # A dedicated guard only returns yes/no in plain text without reasons.
+    # lion-guard still returns the standard json response. So it's not treated as a dedicated guard.
     dedicated_guard_keywords = ['llama-guard', 'granite3-guardian']
     matched_dedicated_guards = [keyword for keyword in dedicated_guard_keywords if keyword in args.judge_model]
     additional_metadata = { 'use_naive_judge_tmpl': args.use_naive_judge_tmpl,

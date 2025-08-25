@@ -48,6 +48,9 @@ pyfiglet = "*"
 together = "*"
 easydict = "*"
 sklearn = "*"
+sqlitedict = "*"
+orjson = "*"
+uvicorn = "*"
 
 [tool.poetry.group.dev.dependencies]
 twine = "5.1.1"

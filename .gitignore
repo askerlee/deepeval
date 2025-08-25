@@ -178,3 +178,5 @@ test-prompts
 huggingface/*
 huggingface
 
+*.sqlite
+openai*.txt

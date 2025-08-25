@@ -351,7 +351,7 @@ class InputData:
         # fields missing and regenerated, we still re-save the cache.
         if self.did_regeneration or (self.saved_cache_filename != self.loaded_cache_filename):
             self.save_cache(input_test_cases, orig_test_cases, def_test_cases, old_response_test_cases,
-                            input_gts, output_gts)
+                            input_gts, input_gt_reasons, output_gts, output_gt_reasons)
 
         return orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, \
                input_gts, input_gt_reasons, output_gts, output_gt_reasons, skipped_count
@@ -434,6 +434,8 @@ if __name__ == "__main__":
                         help="Enable thinking mode for Hugging Face model (default is True)")
     parser.add_argument("--save_judge_as_gt", type=str2bool, default=False,
                         help="If True, save the judge outputs as ground truth in the input file (csv or jsonl).")
+    parser.add_argument("--openai_proxy", type=str, default=None,
+                        help="URL of the OpenAI API proxy")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug mode")
     args = parser.parse_args()
@@ -498,7 +500,7 @@ if __name__ == "__main__":
                 run_async = True
         elif model_name.startswith("openai:"):
             OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-            model = GPTModel(model=model_name[7:], _openai_api_key=OPENAI_API_KEY)
+            model = GPTModel(model=model_name[7:], _openai_api_key=OPENAI_API_KEY, base_url=args.openai_proxy)
             print(f"OpenAI {model_sig} model {model_name[7:]} initialized as the {model_sig}")
             if model_sig == "judge":
                 run_async = True

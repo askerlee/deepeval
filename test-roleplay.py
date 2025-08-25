@@ -7,7 +7,7 @@ from typing import Optional, Tuple, Union, Dict
 from pydantic import BaseModel
 from deepeval.key_handler import KeyValues, KEY_FILE_HANDLER
 import json, csv, base64
-import argparse, os
+import argparse, os, re
 from tqdm import tqdm
 from deepeval.evaluate.configs import (
     AsyncConfig,
@@ -22,6 +22,22 @@ logging.set_verbosity_error()
 
 def str2bool(v):
     return str(v).lower() in ("yes", "true", "t", "1")
+
+def diff(test_cases, gt_labels, preds, gt_reasons, pred_reasons):
+    assert len(test_cases) == len(gt_labels) == len(preds) == len(gt_reasons) == len(pred_reasons), \
+        "All input lists must have the same length."
+    for i in range(len(gt_labels)):
+        if gt_labels[i] != preds[i]:
+            query = test_cases[i].input
+            print(f"{i}: {query}")
+            if test_cases[i].actual_output:
+                print("Output:", test_cases[i].actual_output)
+
+            print(f"GT: {gt_labels[i]}. Reason: {gt_reasons[i]}")
+            print(f"Pred: {preds[i]}. Reason: {pred_reasons[i]}")
+            # Uncomment the next line to break on the first difference.
+            # breakpoint()
+            print("---")
 
 def cond_base64_encode(v, do_base64=False):
     if do_base64:
@@ -326,13 +342,13 @@ class InputData:
 
             if 'input-gt' in item:
                 input_gts.append(item['input-gt'])
-                if 'input-gt-reasons' in item:
+                if 'input-gt-reason' in item:
                     input_gt_reasons.append(item['input-gt-reason'])
                 else:
                     input_gt_reasons.append("N/A")
             if 'output-gt' in item:
                 output_gts.append(item['output-gt'])
-                if 'output-gt-reasons' in item:
+                if 'output-gt-reason' in item:
                     output_gt_reasons.append(item['output-gt-reason'])
                 else:
                     output_gt_reasons.append("N/A")
@@ -436,10 +452,19 @@ if __name__ == "__main__":
                         help="If True, save the judge outputs as ground truth in the input file (csv or jsonl).")
     parser.add_argument("--openai_proxy", type=str, default=None,
                         help="URL of the OpenAI API proxy")
+    parser.add_argument("--replay_log", type=str, default=None,
+                        help="Analyze this replay log instead of doing inference from scratch")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug mode")
     args = parser.parse_args()
 
+    if args.replay_log is not None: 
+        if args.save_judge_as_gt:
+            print(f"--save_judge_as_gt cannot be used together with --replay_log")
+            exit(1)
+        use_replay_log = True
+    else:
+        use_replay_log = False
 
     if ("orig" in args.eval_types or "def" in args.eval_types) and (not args.input_file.endswith(".jsonl")):
         # Some required fields are not in the input_file, and we need to load extra output fields
@@ -552,10 +577,70 @@ if __name__ == "__main__":
     old_response_test_cases, input_gts, input_gt_reasons, \
     output_gts, output_gt_reasons, skipped_count = \
         input_data.generate_test_cases(additional_metadata=additional_metadata, 
-                                       verbose=True)
+                                       verbose=not use_replay_log)
     case_count = len(input_test_cases)
 
     print(f"{case_count} valid cases generated, {skipped_count} cases skipped.")
+
+    if args.replay_log is not None:
+        REPLAY_LOG = open(args.replay_log, "r")
+        replay_lines = REPLAY_LOG.readlines()
+        all_replay_scores   = []
+        all_replay_reasons  = []
+        for line in replay_lines:
+            if re.search(r"Harm \(Red Teaming\) \(score: \d+\.\d+", line):
+                # Extract the score from the line
+                match = re.search(r"Harm \(Red Teaming\) \(score: (\d+\.\d+),.+reason: (.+), error:", line)
+                if match:
+                    score = float(match.group(1))
+                    reason = match.group(2)
+                    all_replay_scores.append(score)
+                    all_replay_reasons.append(reason)
+
+        REPLAY_LOG.close()
+        print(f"Found {len(all_replay_scores)} harm scores in replay log.")
+        if len(all_replay_scores) != case_count * len(args.eval_types):
+            print(f"FATAL: number of replay scores {len(all_replay_scores)} != case count {case_count} * {len(args.eval_types)}")
+            exit(1)
+
+        for i, eval_type in enumerate(args.eval_types):
+            replay_scores = all_replay_scores[i * case_count:(i + 1) * case_count]
+            replay_reasons = all_replay_reasons[i * case_count:(i + 1) * case_count]
+
+            if eval_type == "orig":
+                if output_gts is not None:
+                    f1 = f1_score(output_gts, replay_scores) * 100
+                    print(f"F1 score for orig evaluation: {f1:.1f}")
+                    if args.debug:
+                        diff(orig_test_cases, output_gts, replay_scores, output_gt_reasons, replay_reasons)
+                else:
+                    print("No output_gts available for orig evaluation.")
+            if eval_type == "def":
+                if output_gts is not None:
+                    f1 = f1_score(output_gts, replay_scores) * 100
+                    print(f"F1 score for def evaluation: {f1:.1f}")
+                    if args.debug:
+                        diff(def_test_cases, output_gts, replay_scores, output_gt_reasons, replay_reasons)
+                else:
+                    print("No output_gts available for def evaluation.")    
+            if eval_type == "old-response":
+                if output_gts is not None:
+                    f1 = f1_score(output_gts, replay_scores) * 100
+                    print(f"F1 score for old-response evaluation: {f1:.1f}")
+                    if args.debug:
+                        diff(old_response_test_cases, output_gts, replay_scores, output_gt_reasons, replay_reasons)
+                else:
+                    print("No output_gts available for old-response evaluation.")
+            if eval_type == "input":
+                if input_gts is not None:
+                    f1 = f1_score(input_gts, replay_scores) * 100
+                    print(f"F1 score for input evaluation: {f1:.1f}")
+                    if args.debug:
+                        diff(input_test_cases, input_gts, replay_scores, input_gt_reasons, replay_reasons)
+                else:
+                    print("No input_gts available for input evaluation.")
+
+        exit(0)
 
     async_config    = AsyncConfig(run_async=run_async, max_concurrent=1)
     display_config  = DisplayConfig(show_indicator=not args.debug, print_results=True)
@@ -578,8 +663,8 @@ if __name__ == "__main__":
         else:
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
-                f1 = f1_score(output_gts, judge_decisions)
-                print(f"F1 score for orig evaluation: {f1:.2f}")
+                f1 = f1_score(output_gts, judge_decisions) * 100
+                print(f"F1 score for orig evaluation: {f1:.1f}")
 
     if "def" in args.eval_types:
         print("Evaluating defensive outputs...") # the target model generates the response with the defensive system prompt.
@@ -598,7 +683,7 @@ if __name__ == "__main__":
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
                 f1 = f1_score(output_gts, judge_decisions)
-                print(f"F1 score for def evaluation: {f1:.2f}")
+                print(f"F1 score for def evaluation: {f1:.1f}")
 
     if "old-response" in args.eval_types:
         print("Evaluating old response outputs...")
@@ -618,8 +703,8 @@ if __name__ == "__main__":
         else:
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
-                f1 = f1_score(output_gts, judge_decisions)
-                print(f"F1 score for old-response evaluation: {f1:.2f}")
+                f1 = f1_score(output_gts, judge_decisions) * 100
+                print(f"F1 score for old-response evaluation: {f1:.1f}")
 
     if "input" in args.eval_types:
         print("Evaluating input test cases...")
@@ -637,8 +722,8 @@ if __name__ == "__main__":
         else:
             if output_gts is not None:
                 # Compute f1 score based on input_gts and judge_decisions.
-                f1 = f1_score(input_gts, judge_decisions)
-                print(f"F1 score for input evaluation: {f1:.2f}")
+                f1 = f1_score(input_gts, judge_decisions) * 100
+                print(f"F1 score for input evaluation: {f1:.1f}")
 
     if args.save_judge_as_gt:
         # Always save the judge gt into the cache file only, not into the original txt/csv files.

@@ -47,6 +47,7 @@ posthog = "^3.23.0"
 pyfiglet = "*"
 together = "*"
 easydict = "*"
+sklearn = "*"
 
 [tool.poetry.group.dev.dependencies]
 twine = "5.1.1"

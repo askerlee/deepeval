@@ -222,6 +222,8 @@ class InputData:
         skipped_count       = 0
         input_gts           = []
         output_gts          = []
+        input_gt_reasons    = []
+        output_gt_reasons   = []
         output_idx_dict     = {}
 
         for idx, item in tqdm(enumerate(self.data), total=len(self.data)):
@@ -324,15 +326,26 @@ class InputData:
 
             if 'input-gt' in item:
                 input_gts.append(item['input-gt'])
+                if 'input-gt-reasons' in item:
+                    input_gt_reasons.append(item['input-gt-reason'])
+                else:
+                    input_gt_reasons.append("N/A")
             if 'output-gt' in item:
                 output_gts.append(item['output-gt'])
+                if 'output-gt-reasons' in item:
+                    output_gt_reasons.append(item['output-gt-reason'])
+                else:
+                    output_gt_reasons.append("N/A")
 
         # If some or all input gts are missing from the input file, then discard all input_gts.
         if len(input_gts) == 0 or (len(input_gts) > 0 and len(input_gts) < len(input_test_cases)):
-            input_gts   = None
+            input_gts           = None
+            input_gt_reasons    = None
+
         # If some or all output gts are missing from the input file, then discard all output_gts.
         if len(output_gts) == 0 or (len(output_gts) > 0 and len(output_gts) < len(output_idx_dict)):
-            output_gts  = None
+            output_gts          = None
+            output_gt_reasons   = None
 
         # Even if the data were loaded from cache above, if some cases have some 
         # fields missing and regenerated, we still re-save the cache.
@@ -341,13 +354,13 @@ class InputData:
                             input_gts, output_gts)
 
         return orig_test_cases, def_test_cases, input_test_cases, old_response_test_cases, \
-               input_gts, output_gts, skipped_count
+               input_gts, input_gt_reasons, output_gts, output_gt_reasons, skipped_count
 
     # On some adversarial benchmarks, the input query and target model output may have different labels.
     # Such cases are usually that the input query is harmful but the model output is benign
     # (the model detoxifies the query).
     def save_cache(self, input_test_cases, orig_test_cases, def_test_cases,
-                   old_response_test_cases, input_gts, output_gts):
+                   old_response_test_cases, input_gts, input_gt_reasons, output_gts, output_gt_reasons):
         # Write the test cases to the plain text output cache file
         with open(self.saved_cache_filename, "w", encoding="utf-8") as CACHE:
             for i in range(case_count):
@@ -360,8 +373,12 @@ class InputData:
                     test_case_dict["old-response"] = old_response_test_cases[i].actual_output
                 if input_gts is not None:
                     test_case_dict["input-gt"]  = input_gts[i]
+                if input_gt_reasons is not None:
+                    test_case_dict["input-gt-reason"] = input_gt_reasons[i]
                 if output_gts is not None:
                     test_case_dict["output-gt"] = output_gts[i]
+                if output_gt_reasons is not None:
+                    test_case_dict["output-gt-reason"] = output_gt_reasons[i]
 
                 CACHE.write(json.dumps(test_case_dict, ensure_ascii=False) + "\n")
             
@@ -530,7 +547,8 @@ if __name__ == "__main__":
     # generate_test_cases() will generate the target model outputs.
     # Otherwise, it will use the existing output from the input file or the cache file.
     orig_test_cases, def_test_cases, input_test_cases, \
-    old_response_test_cases, input_gts, output_gts, skipped_count = \
+    old_response_test_cases, input_gts, input_gt_reasons, \
+    output_gts, output_gt_reasons, skipped_count = \
         input_data.generate_test_cases(additional_metadata=additional_metadata, 
                                        verbose=True)
     case_count = len(input_test_cases)
@@ -549,10 +567,12 @@ if __name__ == "__main__":
         end_time = time.time()
         print(f"orig evaluation completed in {end_time - start_time:.2f} seconds.")
         judge_decisions = [result.metrics_data[0].score for result in evaluation_output.test_results]
+        judge_reasons   = [result.metrics_data[0].reason for result in evaluation_output.test_results]
         if args.save_judge_as_gt:
             # Extract judge test decisions as new output_gts.
             # score: 0 (benign) or 1.0 (harmful).
-            output_gts = judge_decisions
+            output_gts          = judge_decisions
+            output_gt_reasons   = judge_reasons
         else:
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
@@ -567,9 +587,11 @@ if __name__ == "__main__":
         end_time = time.time()
         print(f"def evaluation completed in {end_time - start_time:.2f} seconds.")
         judge_decisions = [result.metrics_data[0].score for result in evaluation_output.test_results]
+        judge_reasons   = [result.metrics_data[0].reason for result in evaluation_output.test_results]
         if args.save_judge_as_gt:
             # Extract judge test decisions as new output_gts.
-            output_gts = judge_decisions
+            output_gts          = judge_decisions
+            output_gt_reasons   = judge_reasons
         else:
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
@@ -584,11 +606,13 @@ if __name__ == "__main__":
         end_time = time.time()
         print(f"old-response evaluation completed in {end_time - start_time:.2f} seconds.")
         judge_decisions = [result.metrics_data[0].score for result in evaluation_output.test_results]
+        judge_reasons   = [result.metrics_data[0].reason for result in evaluation_output.test_results]
         if args.save_judge_as_gt:
             # Extract judge test decisions as new output_gts.
             # NOTE: For simplicity, if multiple values among "orig", "def", "old-response" 
             # are specified in args.eval_types, output_gts will be generated from the last type.
-            output_gts = judge_decisions
+            output_gts          = judge_decisions
+            output_gt_reasons   = judge_reasons
         else:
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
@@ -603,9 +627,11 @@ if __name__ == "__main__":
         end_time = time.time()
         print(f"input evaluation completed in {end_time - start_time:.2f} seconds.")
         judge_decisions = [result.metrics_data[0].score for result in evaluation_output.test_results]
+        judge_reasons   = [result.metrics_data[0].reason for result in evaluation_output.test_results]
         if args.save_judge_as_gt:
             # Extract judge test decisions as new input_gts.
-            input_gts = judge_decisions
+            input_gts        = judge_decisions
+            input_gt_reasons = judge_reasons
         else:
             if output_gts is not None:
                 # Compute f1 score based on input_gts and judge_decisions.
@@ -617,5 +643,6 @@ if __name__ == "__main__":
         # Because some cases in the input file might be discarded and the raw input cases may not match
         # the gt labels. But the instantiated LLMTestCase will always have 1-1 match with the gt labels.
         input_data.save_cache(input_test_cases, orig_test_cases, def_test_cases,
-                              old_response_test_cases, input_gts, output_gts)
+                              old_response_test_cases, input_gts, input_gt_reasons, 
+                              output_gts, output_gt_reasons)
         

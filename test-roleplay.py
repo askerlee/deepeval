@@ -26,15 +26,18 @@ def str2bool(v):
 def diff(test_cases, gt_labels, preds, gt_reasons, pred_reasons):
     assert len(test_cases) == len(gt_labels) == len(preds) == len(gt_reasons) == len(pred_reasons), \
         "All input lists must have the same length."
+    diff_i = 0
+
     for i in range(len(gt_labels)):
         if gt_labels[i] != preds[i]:
             query = test_cases[i].input
-            print(f"{i}: {query}")
+            print(f"{diff_i}/{i}: {query}")
             if test_cases[i].actual_output:
                 print("Output:", test_cases[i].actual_output)
 
             print(f"GT: {gt_labels[i]}. Reason: {gt_reasons[i]}")
             print(f"Pred: {preds[i]}. Reason: {pred_reasons[i]}")
+            diff_i += 1
             # Uncomment the next line to break on the first difference.
             # breakpoint()
             print("---")
@@ -116,9 +119,10 @@ class IndexRanges:
         self.ranges_str = None
 
 class InputData:
-    def __init__(self, input_filename: str, target_model: DeepEvalBaseLLM, 
+    def __init__(self, input_filename: str, target_model_name: str, target_model: DeepEvalBaseLLM, 
                  case_ranges: str, eval_types: Optional[list] = None):
         self.input_filename = input_filename
+        self.target_model_name = target_model_name
         self.target_model   = target_model
         self.eval_types     = eval_types
         self.load_base64    = False
@@ -129,7 +133,7 @@ class InputData:
         # If args.input_file is "adv_bench_sub_gpt3.5.jsonl",
         # the loaded_cache_filename will be "adv_bench_sub_gpt3.5-ollama-llama3.2-3b.jsonl"
         input_file_trunk = input_filename.rsplit('.', 1)[0]  # Remove the file extension
-        test_model_name  = target_model.replace(":", "-")    # Replace ':' with '-' for filename compatibility
+        test_model_name  = target_model_name.replace(":", "-")    # Replace ':' with '-' for filename compatibility
         if not input_filename.endswith(".jsonl"):
             input_file_trunk = f"{input_file_trunk}-{test_model_name}"
         # Otherwise, test_model_name is already contained in input_file_trunk. Don't append it repetitively.
@@ -565,11 +569,12 @@ if __name__ == "__main__":
     additional_metadata = { 'use_naive_judge_tmpl': args.use_naive_judge_tmpl,
                             'use_dedicated_guard': len(matched_dedicated_guards) > 0 }
 
-    skipped_count       = 0
-    case_count          = 0
+    skipped_count   = 0
+    case_count      = 0
 
     print(f"Loading test cases from {args.input_file}...")
-    input_data = InputData(args.input_file, args.target_model, args.case_ranges, eval_types=args.eval_types)
+    input_data = InputData(args.input_file, args.target_model, target_model, 
+                           args.case_ranges, eval_types=args.eval_types)
     # If some required fields are not present in the input file, 
     # generate_test_cases() will generate the target model outputs.
     # Otherwise, it will use the existing output from the input file or the cache file.

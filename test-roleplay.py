@@ -23,20 +23,20 @@ logging.set_verbosity_error()
 def str2bool(v):
     return str(v).lower() in ("yes", "true", "t", "1")
 
-def diff(test_cases, gt_labels, preds, gt_reasons, pred_reasons):
-    assert len(test_cases) == len(gt_labels) == len(preds) == len(gt_reasons) == len(pred_reasons), \
-        "All input lists must have the same length."
+def diff(test_cases, left_labels, right_labels, left_reasons, right_reasons):
+    assert len(test_cases) == len(left_labels) == len(right_labels) == len(left_reasons) == len(right_reasons), \
+        f"All input lists must have the same length, but got len(test_cases)={len(test_cases)}, len(left_labels)={len(left_labels)}, len(right_labels)={len(right_labels)}, len(left_reasons)={len(left_reasons)}, len(right_reasons)={len(right_reasons)}"
     diff_i = 0
 
-    for i in range(len(gt_labels)):
-        if gt_labels[i] != preds[i]:
+    for i in range(len(left_labels)):
+        if left_labels[i] != right_labels[i]:
             query = test_cases[i].input
             print(f"{diff_i}/{i}: {query}")
             if test_cases[i].actual_output:
                 print("Output:", test_cases[i].actual_output)
 
-            print(f"GT: {gt_labels[i]}. Reason: {gt_reasons[i]}")
-            print(f"Pred: {preds[i]}. Reason: {pred_reasons[i]}")
+            print(f"Left: {left_labels[i]}. Reason: {left_reasons[i]}")
+            print(f"Right: {right_labels[i]}. Reason: {right_reasons[i]}")
             diff_i += 1
             # Uncomment the next line to break on the first difference.
             # breakpoint()
@@ -381,6 +381,7 @@ class InputData:
     # (the model detoxifies the query).
     def save_cache(self, input_test_cases, orig_test_cases, def_test_cases,
                    old_response_test_cases, input_gts, input_gt_reasons, output_gts, output_gt_reasons):
+        case_count = len(input_test_cases)
         # Write the test cases to the plain text output cache file
         with open(self.saved_cache_filename, "w", encoding="utf-8") as CACHE:
             for i in range(case_count):
@@ -456,15 +457,15 @@ if __name__ == "__main__":
                         help="If True, save the judge outputs as ground truth in the input file (csv or jsonl).")
     parser.add_argument("--openai_proxy", type=str, default=None,
                         help="URL of the OpenAI API proxy")
-    parser.add_argument("--replay_log", type=str, default=None,
-                        help="Analyze this replay log instead of doing inference from scratch")
+    parser.add_argument("--replay_logs", type=str, nargs="*", default=[],
+                        help="Analyze these replay logs instead of doing inference from scratch")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug mode")
     args = parser.parse_args()
 
-    if args.replay_log is not None: 
+    if len(args.replay_logs) > 0: 
         if args.save_judge_as_gt:
-            print(f"--save_judge_as_gt cannot be used together with --replay_log")
+            print(f"--save_judge_as_gt cannot be used together with --replay_logs")
             exit(1)
         use_replay_log = True
     else:
@@ -482,7 +483,6 @@ if __name__ == "__main__":
         args.target_model = args.eval_types[0]
 
     models = []
-    run_async = False
 
     for model_sig, model_name in zip(("target", "judge"), (args.target_model, args.judge_model)):
         if model_name.startswith("ollama:"):
@@ -504,42 +504,30 @@ if __name__ == "__main__":
             if model_sig == "target":
                 model.generate = ollama_sys_generate.__get__(model)
             print(f"Ollama {model_sig} model {model_name[7:]} initialized as the {model_sig}")
-            if model_sig == "judge":
-                run_async = False
         elif model_name.startswith("hf:"):
             # model_name[3:]: remove "hf:" prefix.
             model = HFModel(pretrained_model_name_or_path=model_name[3:], device=args.hf_model_device,
                             enable_thinking=args.enable_thinking, cache_dir=args.hf_cache_dir)  
             print(f"Hugging Face {model_sig} model {model_name[3:]} initialized as the {model_sig}")
-            if model_sig == "judge":
-                run_async = False
         elif model_name.startswith("lion-guard"):
             OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
             model = LionGuardModel(pretrained_model_name_or_path="govtech/lionguard-2", 
                                    OPENAI_API_KEY=OPENAI_API_KEY)
             print(f"Lion Guard {model_sig} model {model_name} initialized as the {model_sig}")
-            if model_sig == "judge":
-                run_async = False
         elif model_name.startswith("together:"):
             # model_name[9:]: remove "together:" prefix.
             model = TogetherModel(model_name=model_name[9:], 
                                   enable_thinking=args.enable_thinking, temperature=0.6)
             print(f"Together {model_sig} model {model_name[9:]} initialized as the {model_sig}")
-            if model_sig == "judge":
-                run_async = True
         elif model_name.startswith("openai:"):
             OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
             model = GPTModel(model=model_name[7:], _openai_api_key=OPENAI_API_KEY, base_url=args.openai_proxy)
             print(f"OpenAI {model_sig} model {model_name[7:]} initialized as the {model_sig}")
-            if model_sig == "judge":
-                run_async = True
         elif model_name == 'drbuddy':
             # NOTE: judge model should never be DrBuddyModel, and only target model can be DrBuddyModel.
             assert model_sig == "target", "DrBuddy model can only be used as target model."
             model = DrBuddyModel(base_url="http://172.20.117.173:5000/query")
             print(f"DrBuddy {model_sig} model {model_name} initialized as the {model_sig}")
-            if model_sig == "judge":
-                run_async = False
         elif (model_sig == "target") and (not load_extra_output_fields):
             model = None
             print(f"{args.input_file} {args.eval_types} directly used")
@@ -570,7 +558,6 @@ if __name__ == "__main__":
                             'use_dedicated_guard': len(matched_dedicated_guards) > 0 }
 
     skipped_count   = 0
-    case_count      = 0
 
     print(f"Loading test cases from {args.input_file}...")
     input_data = InputData(args.input_file, args.target_model, target_model, 
@@ -587,67 +574,73 @@ if __name__ == "__main__":
 
     print(f"{case_count} valid cases generated, {skipped_count} cases skipped.")
 
-    if args.replay_log is not None:
-        REPLAY_LOG = open(args.replay_log, "r")
-        replay_lines = REPLAY_LOG.readlines()
-        all_replay_scores   = []
-        all_replay_reasons  = []
-        for line in replay_lines:
-            if re.search(r"Harm \(Red Teaming\) \(score: \d+\.\d+", line):
-                # Extract the score from the line
-                match = re.search(r"Harm \(Red Teaming\) \(score: (\d+\.\d+),.+reason: (.+), error:", line)
-                if match:
-                    score = float(match.group(1))
-                    reason = match.group(2)
-                    all_replay_scores.append(score)
-                    all_replay_reasons.append(reason)
+    if len(args.replay_logs) > 0:
+        assert len(args.eval_types) == 1,  "Only one eval type is supported for replay logs."
+        assert len(args.replay_logs) <= 2, "At most two replay logs are supported."
 
-        REPLAY_LOG.close()
-        print(f"Found {len(all_replay_scores)} harm scores in replay log.")
-        if len(all_replay_scores) != case_count * len(args.eval_types):
-            print(f"FATAL: number of replay scores {len(all_replay_scores)} != case count {case_count} * {len(args.eval_types)}")
-            exit(1)
+        all_replay_scores   = {}
+        all_replay_reasons  = {}
 
-        for i, eval_type in enumerate(args.eval_types):
-            replay_scores = all_replay_scores[i * case_count:(i + 1) * case_count]
-            replay_reasons = all_replay_reasons[i * case_count:(i + 1) * case_count]
+        for replay_log in args.replay_logs:
+            all_replay_scores[replay_log]  = []
+            all_replay_reasons[replay_log] = []
+            REPLAY_LOG = open(replay_log, "r")
+            replay_lines = REPLAY_LOG.readlines()
+            for line in replay_lines:
+                if re.search(r"Harm \(Red Teaming\) \(score: \d+\.\d+", line):
+                    # Extract the score from the line
+                    match = re.search(r"Harm \(Red Teaming\) \(score: (\d+\.\d+),.+reason: (.+), error:", line)
+                    if match:
+                        score = float(match.group(1))
+                        reason = match.group(2)
+                        all_replay_scores[replay_log].append(score)
+                        all_replay_reasons[replay_log].append(reason)
+    
+            # If --case_ranges is specified, then filter replay scores and reasons accordingly.
+            if input_data.case_ranges.is_non_empty():
+                all_replay_scores_ = []
+                all_replay_reasons_ = []
+                for i in range(len(all_replay_scores[replay_log])):
+                    if i in input_data.case_ranges:
+                        all_replay_scores_.append(all_replay_scores[replay_log][i])
+                        all_replay_reasons_.append(all_replay_reasons[replay_log][i])
+    
+                all_replay_scores[replay_log]  = all_replay_scores_
+                all_replay_reasons[replay_log] = all_replay_reasons_
 
-            if eval_type == "orig":
-                if output_gts is not None:
-                    f1 = f1_score(output_gts, replay_scores) * 100
-                    print(f"F1 score for orig evaluation: {f1:.1f}")
-                    if args.debug:
-                        diff(orig_test_cases, output_gts, replay_scores, output_gt_reasons, replay_reasons)
-                else:
-                    print("No output_gts available for orig evaluation.")
-            if eval_type == "def":
-                if output_gts is not None:
-                    f1 = f1_score(output_gts, replay_scores) * 100
-                    print(f"F1 score for def evaluation: {f1:.1f}")
-                    if args.debug:
-                        diff(def_test_cases, output_gts, replay_scores, output_gt_reasons, replay_reasons)
-                else:
-                    print("No output_gts available for def evaluation.")    
-            if eval_type == "old-response":
-                if output_gts is not None:
-                    f1 = f1_score(output_gts, replay_scores) * 100
-                    print(f"F1 score for old-response evaluation: {f1:.1f}")
-                    if args.debug:
-                        diff(old_response_test_cases, output_gts, replay_scores, output_gt_reasons, replay_reasons)
-                else:
-                    print("No output_gts available for old-response evaluation.")
-            if eval_type == "input":
-                if input_gts is not None:
-                    f1 = f1_score(input_gts, replay_scores) * 100
-                    print(f"F1 score for input evaluation: {f1:.1f}")
-                    if args.debug:
-                        diff(input_test_cases, input_gts, replay_scores, input_gt_reasons, replay_reasons)
-                else:
-                    print("No input_gts available for input evaluation.")
+            REPLAY_LOG.close()
+            print(f"Found {len(all_replay_scores[replay_log])} harm scores in {replay_log}.")
+            if len(all_replay_scores[replay_log]) != case_count:
+                print(f"FATAL: number of replay scores {len(all_replay_scores[replay_log])} != case count {case_count}")
+                exit(1)
+    
+        eval_type = args.eval_types[0]
+        # If only one replay log is specified, we compare it with the ground truth labels.
+        # Otherwise, we compare the two replay logs.
+        if len(args.replay_logs) == 1:
+            left_labels    = output_gts        if eval_type != "input" else input_gts
+            left_reasons   = output_gt_reasons if eval_type != "input" else input_gt_reasons
+            right_labels   = all_replay_scores[args.replay_logs[0]]
+            right_reasons  = all_replay_reasons[args.replay_logs[0]]
+        else:
+            left_labels    = all_replay_scores[args.replay_logs[0]]
+            left_reasons   = all_replay_reasons[args.replay_logs[0]]
+            right_labels   = all_replay_scores[args.replay_logs[1]]
+            right_reasons  = all_replay_reasons[args.replay_logs[1]]
+
+        all_test_cases = [input_test_cases, orig_test_cases, def_test_cases, old_response_test_cases]
+        test_cases = all_test_cases[["input", "orig", "def", "old_response"].index(eval_type)]
+        if left_labels is not None:
+            f1 = f1_score(left_labels, right_labels) * 100
+            print(f"F1 score for {eval_type} evaluation: {f1:.1f}")
+            if args.debug:
+                diff(test_cases, left_labels, right_labels, left_reasons, right_reasons)
+        else:
+            print(f"No left_labels available for {eval_type} evaluation.")
 
         exit(0)
 
-    async_config    = AsyncConfig(run_async=run_async, max_concurrent=1)
+    async_config    = AsyncConfig(run_async=True, max_concurrent=20)
     display_config  = DisplayConfig(show_indicator=not args.debug, print_results=True)
     cache_config    = CacheConfig(write_cache=True, use_cache=False)
 
@@ -725,7 +718,7 @@ if __name__ == "__main__":
             input_gts        = judge_decisions
             input_gt_reasons = judge_reasons
         else:
-            if output_gts is not None:
+            if input_gts is not None:
                 # Compute f1 score based on input_gts and judge_decisions.
                 f1 = f1_score(input_gts, judge_decisions) * 100
                 print(f"F1 score for input evaluation: {f1:.1f}")

@@ -41,7 +41,10 @@ class OllamaModel(DeepEvalBaseLLM):
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
             format=schema.model_json_schema() if schema else None,
-            options={"temperature": self.temperature, "num_predict": self.max_num_tokens}
+            options={ "temperature": self.temperature, "num_predict": self.max_num_tokens, 
+                      # Not sure if prompt KV cache is enabled by default.
+                      # Enable KV cache might speed up prefilling the common prefix of the harm template. 
+                      "cache_prompt": True}
         )
 
         if schema:

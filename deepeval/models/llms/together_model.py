@@ -18,11 +18,11 @@ class TogetherModel(DeepEvalBaseLLM):
     def load_model(self):
         return self.model
 
-    def generate(self, prompt: str, schema: Optional[BaseModel] = None) -> BaseModel:
+    def generate(self, prompt: str, sys_prompt: str=None, schema: Optional[BaseModel] = None) -> BaseModel:
         response = self.client.chat.completions.create(
             model=self.name,
             messages=[
-                {"role": "system", "content": self.sys_prompt},
+                {"role": "system", "content": sys_prompt or self.sys_prompt},
                 {"role": "user", "content": prompt}
             ],
             temperature=self.temperature,
@@ -33,11 +33,14 @@ class TogetherModel(DeepEvalBaseLLM):
             message = re.sub(r'<think>.*?</think>', '', message, flags=re.DOTALL).strip()
         json_result = json.loads(message)
 
-        # Return valid JSON object according to the schema DeepEval supplied
-        return schema(**json_result)
-
-    async def a_generate(self, prompt: str, schema: BaseModel) -> BaseModel:
-        return self.generate(prompt, schema)
+        if schema:
+            # Return valid JSON object according to the schema DeepEval supplied
+            return schema(**json_result)
+        else:
+            return (message, 0)
+        
+    async def a_generate(self, prompt: str, sys_prompt: str=None, schema: Optional[BaseModel] = None) -> BaseModel:
+        return self.generate(prompt, sys_prompt, schema)
 
     def get_model_name(self):
         return self.name

@@ -471,7 +471,7 @@ if __name__ == "__main__":
     else:
         use_replay_log = False
 
-    if ("orig" in args.eval_types or "def" in args.eval_types) and (not args.input_file.endswith(".jsonl")):
+    if "orig" in args.eval_types or "def" in args.eval_types:
         # Some required fields are not in the input_file, and we need to load extra output fields
         # (either loading from the cache or doing regeneration).
         load_extra_output_fields = True

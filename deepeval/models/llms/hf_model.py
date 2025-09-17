@@ -43,11 +43,11 @@ class HFModel(DeepEvalBaseLLM):
         return self.model
 
     # schema should be a type class.
-    def generate(self, prompt: str, schema: Optional[BaseModel] = None) -> BaseModel:
+    def generate(self, prompt: str, sys_prompt: str=None, schema: Optional[BaseModel] = None) -> BaseModel:
         # Same as the previous example above
         model = self.load_model()
         messages=[
-            {"role": "system", "content": self.sys_prompt},
+            {"role": "system", "content": sys_prompt or self.sys_prompt},
             {"role": "user",   "content": prompt}
         ],
         text = self.tokenizer.apply_chat_template(
@@ -70,21 +70,28 @@ class HFModel(DeepEvalBaseLLM):
             pad_token_id=self.tokenizer.eos_token_id,
         )
 
-        # Create parser required for JSON confinement using lmformatenforcer
-        parser = JsonSchemaParser(schema.model_json_schema())
-        prefix_function = build_transformers_prefix_allowed_tokens_fn(
-            pipeline.tokenizer, parser
-        )
+        if schema:
+            # Create parser required for JSON confinement using lmformatenforcer
+            parser = JsonSchemaParser(schema.model_json_schema())
+            prefix_function = build_transformers_prefix_allowed_tokens_fn(
+                pipeline.tokenizer, parser
+            )
 
-        # Output and load valid JSON
-        with torch.no_grad():
-            output_dict = pipeline(text, prefix_allowed_tokens_fn=prefix_function)
-        output = output_dict[0][0]["generated_text"][len(text[0]):]
-        json_result = json.loads(output)
+            # Output and load valid JSON
+            with torch.no_grad():
+                output_dict = pipeline(text, prefix_allowed_tokens_fn=prefix_function)
+            output = output_dict[0][0]["generated_text"][len(text[0]):]
+            json_result = json.loads(output)
 
-        # Return valid JSON object according to the schema DeepEval supplied
-        return schema(**json_result)
-
+            # Return valid JSON object according to the schema DeepEval supplied
+            return schema(**json_result)
+        else:
+            # No schema provided, return raw text output
+            with torch.no_grad():
+                output_dict = pipeline(text)
+            output = output_dict[0][0]["generated_text"][len(text[0]):]
+            return (output, 0)
+        
     async def a_generate(self, prompt: str, schema: BaseModel) -> BaseModel:
         return self.generate(prompt, schema)
 

@@ -680,7 +680,7 @@ if __name__ == "__main__":
         else:
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
-                f1 = f1_score(output_gts, judge_decisions)
+                f1 = f1_score(output_gts, judge_decisions) * 100
                 print(f"F1 score for def evaluation: {f1:.1f}")
 
     if "old-response" in args.eval_types:

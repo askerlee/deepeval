@@ -745,6 +745,16 @@ if __name__ == "__main__":
         all_test_cases = [input_test_cases, orig_test_cases, def_test_cases, old_response_test_cases]
         test_cases = all_test_cases[["input", "orig", "def", "old_response"].index(eval_type)]
         if left_labels is not None:
+            left_zeros = sum(1 for x in left_labels if x == 0)
+            left_ones = sum(1 for x in left_labels if x == 1)
+            right_zeros = sum(1 for x in right_labels if x == 0)
+            right_ones = sum(1 for x in right_labels if x == 1)
+            print(f"left_labels: {left_zeros} zeros, {left_ones} ones")
+            print(f"right_labels: {right_zeros} zeros, {right_ones} ones")
+            fn = sum(1 for l, r in zip(left_labels, right_labels) if l == 1 and r == 0)
+            fp = sum(1 for l, r in zip(left_labels, right_labels) if l == 0 and r == 1)
+            print(f"False negatives (1→0): {fn}")
+            print(f"False positives (0→1): {fp}")
             f1 = f1_score(left_labels, right_labels) * 100
             precision = precision_score(left_labels, right_labels, zero_division=0) * 100
             recall = recall_score(left_labels, right_labels, zero_division=0) * 100

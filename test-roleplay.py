@@ -16,7 +16,7 @@ from deepeval.evaluate.configs import (
     ErrorConfig,
 )
 import time
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
 from transformers import logging
 logging.set_verbosity_error()
 
@@ -748,9 +748,11 @@ if __name__ == "__main__":
             f1 = f1_score(left_labels, right_labels) * 100
             precision = precision_score(left_labels, right_labels, zero_division=0) * 100
             recall = recall_score(left_labels, right_labels, zero_division=0) * 100
+            accuracy = accuracy_score(left_labels, right_labels) * 100
             print(f"F1 score for {eval_type} evaluation: {f1:.1f}")
             print(f"Precision for {eval_type} evaluation: {precision:.1f}")
             print(f"Recall for {eval_type} evaluation: {recall:.1f}")
+            print(f"Accuracy for {eval_type} evaluation: {accuracy:.1f}")
             if args.debug:
                 diff(test_cases, left_labels, right_labels, left_reasons, right_reasons)
         else:
@@ -782,9 +784,11 @@ if __name__ == "__main__":
                 f1 = f1_score(output_gts, judge_decisions) * 100
                 precision = precision_score(output_gts, judge_decisions, zero_division=0) * 100
                 recall = recall_score(output_gts, judge_decisions, zero_division=0) * 100
+                accuracy = accuracy_score(output_gts, judge_decisions) * 100
                 print(f"F1 score for orig evaluation: {f1:.1f}")
                 print(f"Precision for orig evaluation: {precision:.1f}")
                 print(f"Recall for orig evaluation: {recall:.1f}")
+                print(f"Accuracy for orig evaluation: {accuracy:.1f}")
 
     if "def" in args.eval_types:
         print("Evaluating defensive outputs...") # the target model generates the response with the defensive system prompt.
@@ -805,9 +809,11 @@ if __name__ == "__main__":
                 f1 = f1_score(output_gts, judge_decisions) * 100
                 precision = precision_score(output_gts, judge_decisions, zero_division=0) * 100
                 recall = recall_score(output_gts, judge_decisions, zero_division=0) * 100
+                accuracy = accuracy_score(output_gts, judge_decisions) * 100
                 print(f"F1 score for def evaluation: {f1:.1f}")
                 print(f"Precision for def evaluation: {precision:.1f}")
                 print(f"Recall for def evaluation: {recall:.1f}")
+                print(f"Accuracy for def evaluation: {accuracy:.1f}")
 
     if "old-response" in args.eval_types:
         print("Evaluating old response outputs...")
@@ -830,9 +836,11 @@ if __name__ == "__main__":
                 f1 = f1_score(output_gts, judge_decisions) * 100
                 precision = precision_score(output_gts, judge_decisions, zero_division=0) * 100
                 recall = recall_score(output_gts, judge_decisions, zero_division=0) * 100
+                accuracy = accuracy_score(output_gts, judge_decisions) * 100
                 print(f"F1 score for old-response evaluation: {f1:.1f}")
                 print(f"Precision for old-response evaluation: {precision:.1f}")
                 print(f"Recall for old-response evaluation: {recall:.1f}")
+                print(f"Accuracy for old-response evaluation: {accuracy:.1f}")
 
     if "input" in args.eval_types:
         print("Evaluating input test cases...")
@@ -853,9 +861,11 @@ if __name__ == "__main__":
                 f1 = f1_score(input_gts, judge_decisions) * 100
                 precision = precision_score(input_gts, judge_decisions, zero_division=0) * 100
                 recall = recall_score(input_gts, judge_decisions, zero_division=0) * 100
+                accuracy = accuracy_score(input_gts, judge_decisions) * 100
                 print(f"F1 score for input evaluation: {f1:.1f}")
                 print(f"Precision for input evaluation: {precision:.1f}")
                 print(f"Recall for input evaluation: {recall:.1f}")
+                print(f"Accuracy for input evaluation: {accuracy:.1f}")
 
     if args.save_judge_as_gt:
         # Always save the judge gt into the cache file only, not into the original txt/csv files.

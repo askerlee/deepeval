@@ -4,13 +4,31 @@ import torch
 from transformers import BitsAndBytesConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from pydantic import BaseModel
-from lmformatenforcer import JsonSchemaParser
-from lmformatenforcer.integrations.transformers import (
-build_transformers_prefix_allowed_tokens_fn,
-)
 
 from deepeval.models import DeepEvalBaseLLM
-from typing import Optional, Tuple, Union, Dict
+from typing import Optional
+
+
+def _load_lmformatenforcer_components():
+    try:
+        from transformers import tokenization_utils
+        from transformers.tokenization_utils_base import (
+            PreTrainedTokenizerBase,
+        )
+
+        if not hasattr(tokenization_utils, "PreTrainedTokenizerBase"):
+            tokenization_utils.PreTrainedTokenizerBase = (
+                PreTrainedTokenizerBase
+            )
+    except ImportError:
+        pass
+
+    from lmformatenforcer import JsonSchemaParser
+    from lmformatenforcer.integrations.transformers import (
+        build_transformers_prefix_allowed_tokens_fn,
+    )
+
+    return JsonSchemaParser, build_transformers_prefix_allowed_tokens_fn
 
 class HFModel(DeepEvalBaseLLM):
     def __init__(self, pretrained_model_name_or_path, sys_prompt="", device="auto", 
@@ -71,6 +89,10 @@ class HFModel(DeepEvalBaseLLM):
         )
 
         if schema:
+            (
+                JsonSchemaParser,
+                build_transformers_prefix_allowed_tokens_fn,
+            ) = _load_lmformatenforcer_components()
             # Create parser required for JSON confinement using lmformatenforcer
             parser = JsonSchemaParser(schema.model_json_schema())
             prefix_function = build_transformers_prefix_allowed_tokens_fn(

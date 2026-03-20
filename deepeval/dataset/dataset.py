@@ -1,4 +1,5 @@
-from typing import List, Optional, Union, Literal
+from collections.abc import Iterable, Mapping
+from typing import Any, List, Optional, Union, Literal
 from dataclasses import dataclass, field
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
@@ -192,6 +193,235 @@ class EvaluationDataset:
             )
 
         return evaluate(self.test_cases, metrics)
+
+    @staticmethod
+    def _get_dataset_row_value(
+        row: Mapping[str, Any],
+        key_name: Optional[str],
+        default: Any = None,
+        required: bool = False,
+    ):
+        if key_name is None:
+            return default
+
+        if key_name not in row:
+            if required:
+                raise ValueError(
+                    f"Required field `{key_name}` is missing in one or more dataset rows"
+                )
+            return default
+
+        return row[key_name]
+
+    @staticmethod
+    def _normalize_list_field(
+        value: Optional[Union[str, List[str], tuple]], delimiter: str
+    ) -> Optional[List[str]]:
+        if value is None:
+            return None
+
+        if isinstance(value, str):
+            return value.split(delimiter) if value else []
+
+        if isinstance(value, (list, tuple)):
+            normalized_value = list(value)
+            if not all(isinstance(item, str) for item in normalized_value):
+                raise TypeError(
+                    "Provided dataset list field must contain only strings"
+                )
+            return normalized_value
+
+        raise TypeError(
+            "Provided dataset list field must be a string or a list of strings"
+        )
+
+    @staticmethod
+    def _normalize_tool_calls_field(
+        value: Optional[Union[str, List[Union[str, dict, ToolCall]]]]
+    ) -> List[ToolCall]:
+        if value is None or value == "":
+            return []
+
+        parsed_value = trimAndLoadJson(value) if isinstance(value, str) else value
+        if not isinstance(parsed_value, list):
+            raise TypeError(
+                "Provided tool call dataset field must be a list or JSON string"
+            )
+
+        tools = []
+        for tool in parsed_value:
+            if isinstance(tool, ToolCall):
+                tools.append(tool)
+            elif isinstance(tool, str):
+                tools.append(ToolCall(name=tool))
+            elif isinstance(tool, dict):
+                tools.append(ToolCall(**tool))
+            else:
+                raise TypeError(
+                    "Provided tool call entries must be strings, dictionaries, or ToolCall objects"
+                )
+
+        return tools
+
+    @staticmethod
+    def _normalize_additional_metadata_field(value: Any) -> Optional[dict]:
+        if value is None or value == "":
+            return None
+
+        if isinstance(value, dict):
+            return value
+
+        if isinstance(value, str):
+            parsed_value = ast.literal_eval(value)
+            if parsed_value is None:
+                return None
+            if not isinstance(parsed_value, dict):
+                raise TypeError(
+                    "Provided additional metadata field must be a dictionary"
+                )
+            return parsed_value
+
+        raise TypeError(
+            "Provided additional metadata field must be a dictionary or stringified dictionary"
+        )
+
+    def add_test_cases_from_hugging_face_dataset(
+        self,
+        dataset: Iterable[Mapping[str, Any]],
+        input_key_name: str,
+        actual_output_key_name: Optional[str] = None,
+        expected_output_key_name: Optional[str] = None,
+        context_key_name: Optional[str] = None,
+        context_key_delimiter: str = ";",
+        retrieval_context_key_name: Optional[str] = None,
+        retrieval_context_key_delimiter: str = ";",
+        tools_called_key_name: Optional[str] = None,
+        expected_tools_key_name: Optional[str] = None,
+        additional_metadata_key_name: Optional[str] = None,
+    ):
+        """
+        Load test cases from a Hugging Face dataset split.
+
+        Pass the loaded split returned by `load_dataset(..., split=...)` or any
+        iterable of mapping-like rows.
+        """
+        for row in dataset:
+            if not isinstance(row, Mapping):
+                raise TypeError(
+                    "Provided `dataset` must be an iterable of mapping-like rows"
+                )
+
+            input = self._get_dataset_row_value(
+                row, input_key_name, required=True
+            )
+            actual_output = self._get_dataset_row_value(
+                row,
+                actual_output_key_name,
+                default="",
+                required=actual_output_key_name is not None,
+            )
+            expected_output = self._get_dataset_row_value(
+                row, expected_output_key_name
+            )
+            context = self._normalize_list_field(
+                self._get_dataset_row_value(row, context_key_name),
+                context_key_delimiter,
+            )
+            retrieval_context = self._normalize_list_field(
+                self._get_dataset_row_value(row, retrieval_context_key_name),
+                retrieval_context_key_delimiter,
+            )
+            tools_called = self._normalize_tool_calls_field(
+                self._get_dataset_row_value(row, tools_called_key_name)
+            )
+            expected_tools = self._normalize_tool_calls_field(
+                self._get_dataset_row_value(row, expected_tools_key_name)
+            )
+            additional_metadata = self._normalize_additional_metadata_field(
+                self._get_dataset_row_value(row, additional_metadata_key_name)
+            )
+
+            self.add_test_case(
+                LLMTestCase(
+                    input=input,
+                    actual_output=actual_output,
+                    expected_output=expected_output,
+                    context=context,
+                    retrieval_context=retrieval_context,
+                    tools_called=tools_called,
+                    expected_tools=expected_tools,
+                    additional_metadata=additional_metadata,
+                )
+            )
+
+    def add_goldens_from_hugging_face_dataset(
+        self,
+        dataset: Iterable[Mapping[str, Any]],
+        input_key_name: str,
+        actual_output_key_name: Optional[str] = None,
+        expected_output_key_name: Optional[str] = None,
+        context_key_name: Optional[str] = None,
+        context_key_delimiter: str = ";",
+        retrieval_context_key_name: Optional[str] = None,
+        retrieval_context_key_delimiter: str = ";",
+        tools_called_key_name: Optional[str] = None,
+        expected_tools_key_name: Optional[str] = None,
+        source_file_key_name: Optional[str] = None,
+        additional_metadata_key_name: Optional[str] = None,
+    ):
+        """
+        Load goldens from a Hugging Face dataset split.
+
+        Pass the loaded split returned by `load_dataset(..., split=...)` or any
+        iterable of mapping-like rows.
+        """
+        for row in dataset:
+            if not isinstance(row, Mapping):
+                raise TypeError(
+                    "Provided `dataset` must be an iterable of mapping-like rows"
+                )
+
+            input = self._get_dataset_row_value(
+                row, input_key_name, required=True
+            )
+            actual_output = self._get_dataset_row_value(
+                row, actual_output_key_name
+            )
+            expected_output = self._get_dataset_row_value(
+                row, expected_output_key_name
+            )
+            context = self._normalize_list_field(
+                self._get_dataset_row_value(row, context_key_name),
+                context_key_delimiter,
+            )
+            retrieval_context = self._normalize_list_field(
+                self._get_dataset_row_value(row, retrieval_context_key_name),
+                retrieval_context_key_delimiter,
+            )
+            tools_called = self._normalize_tool_calls_field(
+                self._get_dataset_row_value(row, tools_called_key_name)
+            )
+            expected_tools = self._normalize_tool_calls_field(
+                self._get_dataset_row_value(row, expected_tools_key_name)
+            )
+            source_file = self._get_dataset_row_value(row, source_file_key_name)
+            additional_metadata = self._normalize_additional_metadata_field(
+                self._get_dataset_row_value(row, additional_metadata_key_name)
+            )
+
+            self.goldens.append(
+                Golden(
+                    input=input,
+                    actual_output=actual_output,
+                    expected_output=expected_output,
+                    context=context,
+                    retrieval_context=retrieval_context,
+                    tools_called=tools_called,
+                    expected_tools=expected_tools,
+                    source_file=source_file,
+                    additional_metadata=additional_metadata,
+                )
+            )
 
     def add_test_cases_from_csv_file(
         self,

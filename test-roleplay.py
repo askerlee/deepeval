@@ -3,7 +3,7 @@ from deepeval.metrics.red_teaming_metrics import HarmGrader
 from deepeval.models import DeepEvalBaseLLM, OllamaModel, DrBuddyModel, HFModel, TogetherModel, LionGuardModel, GPTModel
 from deepeval.test_case import LLMTestCase
 from ollama import ChatResponse
-from typing import Optional, Tuple, Union, Dict
+from typing import Optional, Tuple, Union, Dict, Any
 from pydantic import BaseModel
 from deepeval.key_handler import KeyValues, KEY_FILE_HANDLER
 import json, csv, base64
@@ -16,7 +16,7 @@ from deepeval.evaluate.configs import (
     ErrorConfig,
 )
 import time
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, precision_score, recall_score
 from transformers import logging
 logging.set_verbosity_error()
 
@@ -119,22 +119,53 @@ class IndexRanges:
         self.ranges_str = None
 
 class InputData:
-    def __init__(self, input_filename: str, target_model_name: str, target_model: DeepEvalBaseLLM, 
-                 case_ranges: str, eval_types: Optional[list] = None):
+    @staticmethod
+    def _sanitize_cache_component(value: str) -> str:
+        return re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-")
+
+    def __init__(self, input_filename: str, target_model_name: str, target_model: DeepEvalBaseLLM,
+                 case_ranges: str, eval_types: Optional[list] = None,
+                 hf_dataset_name: Optional[str] = None,
+                 hf_dataset_config: Optional[str] = None,
+                 hf_dataset_split: str = "test",
+                 hf_input_key: Optional[str] = None,
+                 hf_cache_dir: Optional[str] = None):
         self.input_filename = input_filename
         self.target_model_name = target_model_name
         self.target_model   = target_model
         self.eval_types     = eval_types
         self.load_base64    = False
         self.did_regeneration = False
+        self.using_cache_file = False
+        self.hf_dataset_name = hf_dataset_name
+        self.hf_dataset_config = hf_dataset_config
+        self.hf_dataset_split = hf_dataset_split
+        self.hf_input_key = hf_input_key
+        self.hf_cache_dir = hf_cache_dir
+        self.is_hugging_face_dataset = hf_dataset_name is not None
         # case_ranges: str, e.g., "0-10,20-30,40-50" -> [(0, 10), (20, 30), (40, 50)]
         self.case_ranges    = IndexRanges(case_ranges) 
 
+        if self.is_hugging_face_dataset:
+            dataset_source_parts = [self.hf_dataset_name]
+            if self.hf_dataset_config:
+                dataset_source_parts.append(self.hf_dataset_config)
+            dataset_source_parts.append(self.hf_dataset_split)
+            self.input_source_label = (
+                f"Hugging Face dataset {' / '.join(dataset_source_parts)}"
+            )
+            self.input_source_name = self._sanitize_cache_component(
+                "-".join(dataset_source_parts)
+            )
+        else:
+            self.input_source_label = self.input_filename
+            self.input_source_name = self.input_filename
+
         # If args.input_file is "adv_bench_sub_gpt3.5.jsonl",
         # the loaded_cache_filename will be "adv_bench_sub_gpt3.5-ollama-llama3.2-3b.jsonl"
-        input_file_trunk = input_filename.rsplit('.', 1)[0]  # Remove the file extension
+        input_file_trunk = self.input_source_name.rsplit('.', 1)[0]  # Remove the file extension
         test_model_name  = target_model_name.replace(":", "-")    # Replace ':' with '-' for filename compatibility
-        if not input_filename.endswith(".jsonl"):
+        if not self.input_source_name.endswith(".jsonl"):
             input_file_trunk = f"{input_file_trunk}-{test_model_name}"
         # Otherwise, test_model_name is already contained in input_file_trunk. Don't append it repetitively.
 
@@ -186,10 +217,12 @@ class InputData:
                     # Replace the input_filename to the base64 cache file.
                     self.input_filename = self.loaded_cache_filename_base64
                     self.load_base64    = True
+                    self.using_cache_file = True
                 else:
                     # Replace the input_filename to the plaintext cache file.
                     self.input_filename = self.loaded_cache_filename
                     self.load_base64    = False
+                    self.using_cache_file = True
 
                 if use_ranged_cache_file:
                     # We will load all cases from the cache filename tagged with case_ranges.
@@ -200,26 +233,29 @@ class InputData:
             else:
                 print(f"Input cache file {self.loaded_cache_filename} does not exist. Generating new test cases.")
         else:
-            print(f"Input file {self.input_filename} will be directly used without loading extra output fields.")
+            print(f"{self.input_source_label} will be directly used without loading extra output fields.")
             self.load_base64 = False
 
-        with open(self.input_filename, "r", encoding="utf-8") as f:
-            if self.input_filename.endswith(".jsonl"):
-                self.data = [json.loads(line) for line in f if line.strip()]
-            elif self.input_filename.endswith(".json"):
-                self.data = json.load(f)
-                if isinstance(self.data, list):
-                    # Filter out empty items, convert to dicts
-                    self.data = [{'input': item} for item in self.data if item]
+        if self.is_hugging_face_dataset and not self.using_cache_file:
+            self.data = self._load_hugging_face_dataset()
+        else:
+            with open(self.input_filename, "r", encoding="utf-8") as f:
+                if self.input_filename.endswith(".jsonl"):
+                    self.data = [json.loads(line) for line in f if line.strip()]
+                elif self.input_filename.endswith(".json"):
+                    self.data = json.load(f)
+                    if isinstance(self.data, list):
+                        # Filter out empty items, convert to dicts
+                        self.data = [{'input': item} for item in self.data if item]
 
-            elif self.input_filename.endswith(".csv"):
-                reader = csv.reader(f)
-                header = next(reader)
-                self.data = [dict(zip(header, row)) for row in reader]
-            elif self.input_filename.endswith(".txt"):
-                self.data = [{"input": line.strip()} for line in f if line.strip()]
-            else:
-                raise ValueError("Unsupported file format. Use .jsonl or .csv files.")
+                elif self.input_filename.endswith(".csv"):
+                    reader = csv.reader(f)
+                    header = next(reader)
+                    self.data = [dict(zip(header, row)) for row in reader]
+                elif self.input_filename.endswith(".txt"):
+                    self.data = [{"input": line.strip()} for line in f if line.strip()]
+                else:
+                    raise ValueError("Unsupported file format. Use .jsonl or .csv files.")
 
         # A defensive system prompt for the target model. Only used when 'eval_types' contains 'def'.
         self.target_llm_def_sys_prompt = (
@@ -232,6 +268,75 @@ class InputData:
             "character descriptions, imagined scenarios, or worldbuilding content. Maintain "
             "a polite and professional tone, and gently redirect the user if possible."
         )
+
+    def _load_hugging_face_dataset(self):
+        try:
+            from datasets import load_dataset
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError(
+                "Please install datasets to load Hugging Face datasets. 'pip install datasets'"
+            )
+
+        dataset_args = [self.hf_dataset_name]
+        if self.hf_dataset_config:
+            dataset_args.append(self.hf_dataset_config)
+
+        dataset = load_dataset(
+            *dataset_args,
+            split=self.hf_dataset_split,
+            cache_dir=self.hf_cache_dir,
+        )
+        return [self._inject_input_gt_from_label(dict(row)) for row in dataset]
+
+    @staticmethod
+    def _inject_input_gt_from_label(item: Dict[str, Any]) -> Dict[str, Any]:
+        if "input-gt" in item:
+            return item
+
+        label = item.get("label")
+        if not isinstance(label, str):
+            return item
+
+        label_to_input_gt = {
+            "safe": 0,
+            "unsafe": 1,
+        }
+        input_gt = label_to_input_gt.get(label.lower())
+        if input_gt is None:
+            return item
+
+        item["input-gt"] = input_gt
+        return item
+
+    def _ensure_input_field(self, item: Dict[str, Any]):
+        if item.get("input"):
+            return
+
+        candidate_keys = []
+        if self.hf_input_key:
+            candidate_keys.append(self.hf_input_key)
+
+        candidate_keys.extend(
+            ["ss_prompt", "prompt", "goal", "query", "question", "instruction", "text"]
+        )
+
+        seen_keys = set()
+        for key in candidate_keys:
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+
+            value = item.get(key)
+            if value is not None and value != "":
+                item["input"] = value
+                return
+
+        if self.is_hugging_face_dataset:
+            raise ValueError(
+                "Input field is missing in the dataset item. Set --hf_input_key to the prompt column name."
+            )
+
+        raise ValueError("Input field is missing in the data item.")
 
     def generate_test_cases(self, additional_metadata: Optional[Dict] = None, 
                             verbose: Optional[bool] = True) -> Tuple[list, list, int]:
@@ -252,24 +357,11 @@ class InputData:
             if self.case_ranges.is_non_empty() and (idx not in self.case_ranges):
                 skipped_count += 1
                 continue
-            # If 'input' field is not present, find the correct field name based on the file type
-            # Otherwise use the 'input' field.
-            if self.input_filename.endswith(".jsonl") or self.input_filename.endswith(".json"):
-                if 'ss_prompt' in item and 'input' not in item:
-                    item['input'] = item['ss_prompt']
-            elif self.input_filename.endswith(".csv"):
-                if 'prompt' in item and 'input' not in item:
-                    item['input'] = item['prompt']
-                # behaviors_with_types_ids.csv has 'goal' instead of 'prompt'
-                elif 'goal' in item and 'input' not in item:
-                    item['input'] = item['goal']
+            self._ensure_input_field(item)
 
             if 'sample_rounds' in item and item['sample_rounds'] == 'Failed':
                 skipped_count += 1
                 continue
-            
-            if 'input' not in item:
-                raise ValueError("Input field is missing in the data item.")
             
             if verbose:
                 print(f"====== {idx} ======  Input: {item['input']}")
@@ -436,7 +528,15 @@ if __name__ == "__main__":
     parser.add_argument("--hf_cache_dir", type=str, default=None,
                         help="Hugging Face cache directory")
     parser.add_argument("--input_file", type=str, default="adv_bench_sub_gpt3.5.jsonl",
-                        help="Input file containing test cases")
+                        help="Input file containing test cases. Ignored when --hf_dataset is set")
+    parser.add_argument("--hf_dataset", type=str, default=None,
+                        help="Hugging Face dataset name to load instead of a local input file")
+    parser.add_argument("--hf_dataset_config", type=str, default=None,
+                        help="Optional Hugging Face dataset config or subset name")
+    parser.add_argument("--hf_dataset_split", type=str, default="test",
+                        help="Hugging Face dataset split to load")
+    parser.add_argument("--hf_input_key", type=str, default=None,
+                        help="Prompt column name for Hugging Face dataset rows")
     # 'orig':           'orig_output' in the csv file. 
     #                   If it's not present, the target model will generate the response with no system prompt.
     # 'def':            'def_output' in the csv file.  
@@ -481,6 +581,15 @@ if __name__ == "__main__":
         # (absent in the input_file) either.
         load_extra_output_fields = False
         args.target_model = args.eval_types[0]
+
+    if args.hf_dataset:
+        input_source_label = f"{args.hf_dataset} [{args.hf_dataset_split}]"
+        if args.hf_dataset_config:
+            input_source_label = (
+                f"{args.hf_dataset}/{args.hf_dataset_config} [{args.hf_dataset_split}]"
+            )
+    else:
+        input_source_label = args.input_file
 
     models = []
 
@@ -530,7 +639,7 @@ if __name__ == "__main__":
             print(f"DrBuddy {model_sig} model {model_name} initialized as the {model_sig}")
         elif (model_sig == "target") and (not load_extra_output_fields):
             model = None
-            print(f"{args.input_file} {args.eval_types} directly used")
+            print(f"{input_source_label} {args.eval_types} directly used")
         else:
             breakpoint()
 
@@ -559,9 +668,14 @@ if __name__ == "__main__":
 
     skipped_count   = 0
 
-    print(f"Loading test cases from {args.input_file}...")
+    print(f"Loading test cases from {input_source_label}...")
     input_data = InputData(args.input_file, args.target_model, target_model, 
-                           args.case_ranges, eval_types=args.eval_types)
+                           args.case_ranges, eval_types=args.eval_types,
+                           hf_dataset_name=args.hf_dataset,
+                           hf_dataset_config=args.hf_dataset_config,
+                           hf_dataset_split=args.hf_dataset_split,
+                           hf_input_key=args.hf_input_key,
+                           hf_cache_dir=args.hf_cache_dir)
     # If some required fields are not present in the input file, 
     # generate_test_cases() will generate the target model outputs.
     # Otherwise, it will use the existing output from the input file or the cache file.
@@ -632,7 +746,11 @@ if __name__ == "__main__":
         test_cases = all_test_cases[["input", "orig", "def", "old_response"].index(eval_type)]
         if left_labels is not None:
             f1 = f1_score(left_labels, right_labels) * 100
+            precision = precision_score(left_labels, right_labels, zero_division=0) * 100
+            recall = recall_score(left_labels, right_labels, zero_division=0) * 100
             print(f"F1 score for {eval_type} evaluation: {f1:.1f}")
+            print(f"Precision for {eval_type} evaluation: {precision:.1f}")
+            print(f"Recall for {eval_type} evaluation: {recall:.1f}")
             if args.debug:
                 diff(test_cases, left_labels, right_labels, left_reasons, right_reasons)
         else:
@@ -662,7 +780,11 @@ if __name__ == "__main__":
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
                 f1 = f1_score(output_gts, judge_decisions) * 100
+                precision = precision_score(output_gts, judge_decisions, zero_division=0) * 100
+                recall = recall_score(output_gts, judge_decisions, zero_division=0) * 100
                 print(f"F1 score for orig evaluation: {f1:.1f}")
+                print(f"Precision for orig evaluation: {precision:.1f}")
+                print(f"Recall for orig evaluation: {recall:.1f}")
 
     if "def" in args.eval_types:
         print("Evaluating defensive outputs...") # the target model generates the response with the defensive system prompt.
@@ -681,7 +803,11 @@ if __name__ == "__main__":
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
                 f1 = f1_score(output_gts, judge_decisions) * 100
+                precision = precision_score(output_gts, judge_decisions, zero_division=0) * 100
+                recall = recall_score(output_gts, judge_decisions, zero_division=0) * 100
                 print(f"F1 score for def evaluation: {f1:.1f}")
+                print(f"Precision for def evaluation: {precision:.1f}")
+                print(f"Recall for def evaluation: {recall:.1f}")
 
     if "old-response" in args.eval_types:
         print("Evaluating old response outputs...")
@@ -702,7 +828,11 @@ if __name__ == "__main__":
             if output_gts is not None:
                 # Compute f1 score based on output_gts and judge_decisions.
                 f1 = f1_score(output_gts, judge_decisions) * 100
+                precision = precision_score(output_gts, judge_decisions, zero_division=0) * 100
+                recall = recall_score(output_gts, judge_decisions, zero_division=0) * 100
                 print(f"F1 score for old-response evaluation: {f1:.1f}")
+                print(f"Precision for old-response evaluation: {precision:.1f}")
+                print(f"Recall for old-response evaluation: {recall:.1f}")
 
     if "input" in args.eval_types:
         print("Evaluating input test cases...")
@@ -721,7 +851,11 @@ if __name__ == "__main__":
             if input_gts is not None:
                 # Compute f1 score based on input_gts and judge_decisions.
                 f1 = f1_score(input_gts, judge_decisions) * 100
+                precision = precision_score(input_gts, judge_decisions, zero_division=0) * 100
+                recall = recall_score(input_gts, judge_decisions, zero_division=0) * 100
                 print(f"F1 score for input evaluation: {f1:.1f}")
+                print(f"Precision for input evaluation: {precision:.1f}")
+                print(f"Recall for input evaluation: {recall:.1f}")
 
     if args.save_judge_as_gt:
         # Always save the judge gt into the cache file only, not into the original txt/csv files.

@@ -325,6 +325,21 @@ evaluate(dataset, [answer_relevancy_metric])
 dataset.evaluate([answer_relevancy_metric])
 ```
 
+You can also hydrate an evaluation dataset directly from a Hugging Face dataset split:
+
+```python
+from datasets import load_dataset
+from deepeval.dataset import EvaluationDataset
+
+hf_dataset = load_dataset("walledai/XSTest", split="test")
+
+evaluation_dataset = EvaluationDataset()
+evaluation_dataset.add_goldens_from_hugging_face_dataset(
+    hf_dataset,
+    input_key_name="<prompt-column-name>",
+)
+```
+
 # LLM Evaluation With Confident AI
 
 The correct LLM evaluation lifecycle is only achievable with [the DeepEval platform](https://confident-ai.com?utm_source=Github). It allows you to:

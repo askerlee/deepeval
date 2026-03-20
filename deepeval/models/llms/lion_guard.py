@@ -1,16 +1,10 @@
-import json, os
+import json
 import numpy as np
-from ray import client
-import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel
 from pydantic import BaseModel
-from lmformatenforcer import JsonSchemaParser
-from lmformatenforcer.integrations.transformers import (
-build_transformers_prefix_allowed_tokens_fn,
-)
 
 from deepeval.models import DeepEvalBaseLLM
-from typing import Optional, Tuple, Union, Dict
+from typing import Optional
 from openai import OpenAI
 import tiktoken
 from openai import BadRequestError

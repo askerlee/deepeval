@@ -1,5 +1,6 @@
 from typing import Optional, List, Callable, Union, Dict
 import os, time
+from rich.console import Console
 
 
 from deepeval.test_case.conversational_test_case import Turn
@@ -309,7 +310,13 @@ def validate_evaluate_inputs(
                     )
 
 
-def print_test_result(test_result: TestResult, display: TestRunResultDisplay):
+def print_test_result(
+    test_result: TestResult,
+    display: TestRunResultDisplay,
+    console: Optional[Console] = None,
+):
+    printer = console.print if console is not None else print
+
     if test_result.metrics_data is None:
         return
 
@@ -321,9 +328,9 @@ def print_test_result(test_result: TestResult, display: TestRunResultDisplay):
     elif display == TestRunResultDisplay.FAILING.value and test_result.success:
         return
 
-    print("")
-    print("=" * 70 + "\n")
-    print("Metrics Summary\n")
+    printer("")
+    printer("=" * 70 + "\n")
+    printer("Metrics Summary\n")
 
     for metric_data in test_result.metrics_data:
         successful = True
@@ -339,32 +346,32 @@ def print_test_result(test_result: TestResult, display: TestRunResultDisplay):
                 successful = False
 
         if not successful:
-            print(
+            printer(
                 f"  - ❌ {metric_data.name} (score: {metric_data.score}, threshold: {metric_data.threshold}, strict: {metric_data.strict_mode}, evaluation model: {metric_data.evaluation_model}, reason: {metric_data.reason}, error: {metric_data.error})"
             )
         else:
-            print(
+            printer(
                 f"  - ✅ {metric_data.name} (score: {metric_data.score}, threshold: {metric_data.threshold}, strict: {metric_data.strict_mode}, evaluation model: {metric_data.evaluation_model}, reason: {metric_data.reason}, error: {metric_data.error})"
             )
 
-    print("")
+    printer("")
     if test_result.multimodal:
-        print("For multimodal test case:\n")
-        print(f"  - input: {test_result.input}")
-        print(f"  - actual output: {test_result.actual_output}")
+        printer("For multimodal test case:\n")
+        printer(f"  - input: {test_result.input}")
+        printer(f"  - actual output: {test_result.actual_output}")
 
     elif test_result.conversational:
-        print("For conversational test case:\n")
-        print(
+        printer("For conversational test case:\n")
+        printer(
             f"  - Unable to print conversational test case. Run 'deepeval login' to view conversational evaluations in full."
         )
     else:
-        print("For test case:\n")
-        print(f"  - input: {test_result.input}")
-        print(f"  - actual output: {test_result.actual_output}")
-        print(f"  - expected output: {test_result.expected_output}")
-        print(f"  - context: {test_result.context}")
-        print(f"  - retrieval context: {test_result.retrieval_context}")
+        printer("For test case:\n")
+        printer(f"  - input: {test_result.input}")
+        printer(f"  - actual output: {test_result.actual_output}")
+        printer(f"  - expected output: {test_result.expected_output}")
+        printer(f"  - context: {test_result.context}")
+        printer(f"  - retrieval context: {test_result.retrieval_context}")
 
 
 def write_test_result_to_file(

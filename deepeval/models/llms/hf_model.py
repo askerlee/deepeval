@@ -60,14 +60,21 @@ class HFModel(DeepEvalBaseLLM):
     def load_model(self):
         return self.model
 
+    @staticmethod
+    def _extract_generated_text(output_dict, prompt_text: str) -> str:
+        generated_text = output_dict[0]["generated_text"]
+        if generated_text.startswith(prompt_text):
+            return generated_text[len(prompt_text):]
+        return generated_text
+
     # schema should be a type class.
     def generate(self, prompt: str, sys_prompt: str=None, schema: Optional[BaseModel] = None) -> BaseModel:
         # Same as the previous example above
         model = self.load_model()
-        messages=[
+        messages = [
             {"role": "system", "content": sys_prompt or self.sys_prompt},
             {"role": "user",   "content": prompt}
-        ],
+        ]
         text = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
@@ -102,7 +109,7 @@ class HFModel(DeepEvalBaseLLM):
             # Output and load valid JSON
             with torch.no_grad():
                 output_dict = pipeline(text, prefix_allowed_tokens_fn=prefix_function)
-            output = output_dict[0][0]["generated_text"][len(text[0]):]
+            output = self._extract_generated_text(output_dict, text)
             json_result = json.loads(output)
 
             # Return valid JSON object according to the schema DeepEval supplied
@@ -111,11 +118,10 @@ class HFModel(DeepEvalBaseLLM):
             # No schema provided, return raw text output
             with torch.no_grad():
                 output_dict = pipeline(text)
-            output = output_dict[0][0]["generated_text"][len(text[0]):]
-            return (output, 0)
+            return self._extract_generated_text(output_dict, text)
         
     async def a_generate(self, prompt: str, sys_prompt: str=None, schema: Optional[BaseModel] = None) -> BaseModel:
-        return self.generate(prompt, schema)
+        return self.generate(prompt, sys_prompt=sys_prompt, schema=schema)
 
     def get_model_name(self):
         return self.name

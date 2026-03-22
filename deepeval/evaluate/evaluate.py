@@ -197,6 +197,16 @@ def evaluate(
     cache_config: Optional[CacheConfig] = CacheConfig(),
     error_config: Optional[ErrorConfig] = ErrorConfig(),
 ) -> EvaluationResult:
+    result_callback = None
+    if display_config.print_results:
+
+        def result_callback(test_result, console=None):
+            print_test_result(
+                test_result,
+                display_config.display_option,
+                console=console,
+            )
+
     validate_evaluate_inputs(
         goldens=goldens,
         observed_callback=observed_callback,
@@ -222,6 +232,7 @@ def evaluate(
                         identifier=identifier,
                         max_concurrent=async_config.max_concurrent,
                         save_to_disk=cache_config.write_cache,
+                        result_callback=result_callback,
                     )
                 )
             else:
@@ -234,13 +245,12 @@ def evaluate(
                     skip_on_missing_params=error_config.skip_on_missing_params,
                     identifier=identifier,
                     save_to_disk=cache_config.write_cache,
+                    result_callback=result_callback,
                 )
         end_time = time.perf_counter()
         run_duration = end_time - start_time
         if display_config.print_results:
-            for test_result in test_results:
-                print_test_result(test_result, display_config.display_option)
-                aggregate_metric_pass_rates(test_results)
+            aggregate_metric_pass_rates(test_results)
         if display_config.file_output_dir is not None:
             for test_result in test_results:
                 write_test_result_to_file(
@@ -287,6 +297,7 @@ def evaluate(
                         show_indicator=display_config.show_indicator,
                         throttle_value=async_config.throttle_value,
                         max_concurrent=async_config.max_concurrent,
+                        result_callback=result_callback,
                     )
                 )
             else:
@@ -300,14 +311,13 @@ def evaluate(
                     save_to_disk=cache_config.write_cache,
                     show_indicator=display_config.show_indicator,
                     verbose_mode=display_config.verbose_mode,
+                    result_callback=result_callback,
                 )
 
         end_time = time.perf_counter()
         run_duration = end_time - start_time
         if display_config.print_results:
-            for test_result in test_results:
-                print_test_result(test_result, display_config.display_option)
-                aggregate_metric_pass_rates(test_results)
+            aggregate_metric_pass_rates(test_results)
         if display_config.file_output_dir is not None:
             for test_result in test_results:
                 write_test_result_to_file(

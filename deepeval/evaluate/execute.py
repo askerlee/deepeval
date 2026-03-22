@@ -94,6 +94,9 @@ def execute_test_cases(
     test_run_manager: Optional[TestRunManager] = None,
     _use_bar_indicator: bool = True,
     _is_assert_test: bool = False,
+    result_callback: Optional[
+        Callable[[TestResult, Optional[Console]], None]
+    ] = None,
 ) -> List[TestResult]:
     global_test_run_cache_manager.disable_write_cache = save_to_disk == False
 
@@ -374,6 +377,11 @@ def execute_test_cases(
 
                 test_result = create_test_result(api_test_case)
                 test_results.append(test_result)
+                if result_callback is not None:
+                    result_callback(
+                        test_result,
+                        progress.console if progress is not None else None,
+                    )
                 update_pbar(progress, pbar_id)
 
     if show_indicator and _use_bar_indicator:
@@ -418,6 +426,9 @@ async def a_execute_test_cases(
     test_run_manager: Optional[TestRunManager] = None,
     _use_bar_indicator: bool = True,
     _is_assert_test: bool = False,
+    result_callback: Optional[
+        Callable[[TestResult, Optional[Console]], None]
+    ] = None,
 ) -> List[TestResult]:
     semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -494,6 +505,7 @@ async def a_execute_test_cases(
                             _is_assert_test=_is_assert_test,
                             progress=progress,
                             pbar_id=pbar_id,
+                            result_callback=result_callback,
                         )
                         tasks.append(asyncio.create_task(task))
 
@@ -516,6 +528,7 @@ async def a_execute_test_cases(
                             _is_assert_test=_is_assert_test,
                             progress=progress,
                             pbar_id=pbar_id,
+                            result_callback=result_callback,
                         )
                         tasks.append(asyncio.create_task(task))
 
@@ -536,6 +549,7 @@ async def a_execute_test_cases(
                             _is_assert_test=_is_assert_test,
                             progress=progress,
                             pbar_id=pbar_id,
+                            result_callback=result_callback,
                         )
                         tasks.append(asyncio.create_task(task))
 
@@ -566,6 +580,7 @@ async def a_execute_test_cases(
                         _use_bar_indicator=_use_bar_indicator,
                         _is_assert_test=_is_assert_test,
                         show_indicator=show_indicator,
+                        result_callback=result_callback,
                     )
                     tasks.append(asyncio.create_task((task)))
 
@@ -589,6 +604,7 @@ async def a_execute_test_cases(
                         _use_bar_indicator=_use_bar_indicator,
                         _is_assert_test=_is_assert_test,
                         show_indicator=show_indicator,
+                        result_callback=result_callback,
                     )
                     tasks.append(asyncio.create_task((task)))
 
@@ -609,6 +625,7 @@ async def a_execute_test_cases(
                         _use_bar_indicator=_use_bar_indicator,
                         _is_assert_test=_is_assert_test,
                         show_indicator=show_indicator,
+                        result_callback=result_callback,
                     )
                     tasks.append(asyncio.create_task(task))
 
@@ -633,6 +650,9 @@ async def a_execute_llm_test_cases(
     _is_assert_test: bool,
     progress: Optional[Progress] = None,
     pbar_id: Optional[int] = None,
+    result_callback: Optional[
+        Callable[[TestResult, Optional[Console]], None]
+    ] = None,
 ):
     pbar_test_case_id = add_pbar(
         progress,
@@ -713,7 +733,13 @@ async def a_execute_llm_test_cases(
         to_temp=True,
     )
 
-    test_results.append(create_test_result(api_test_case))
+    test_result = create_test_result(api_test_case)
+    test_results.append(test_result)
+    if result_callback is not None:
+        result_callback(
+            test_result,
+            progress.console if progress is not None else None,
+        )
     update_pbar(progress, pbar_id)
 
 
@@ -730,6 +756,9 @@ async def a_execute_mllm_test_cases(
     _is_assert_test: bool,
     progress: Optional[Progress] = None,
     pbar_id: Optional[int] = None,
+    result_callback: Optional[
+        Callable[[TestResult, Optional[Console]], None]
+    ] = None,
 ):
     show_metrics_indicator = show_indicator and not _use_bar_indicator
     pbar_test_case_id = add_pbar(
@@ -769,7 +798,13 @@ async def a_execute_mllm_test_cases(
 
     ### Update Test Run ###
     test_run_manager.update_test_run(api_test_case, test_case)
-    test_results.append(create_test_result(api_test_case))
+    test_result = create_test_result(api_test_case)
+    test_results.append(test_result)
+    if result_callback is not None:
+        result_callback(
+            test_result,
+            progress.console if progress is not None else None,
+        )
     update_pbar(progress, pbar_id)
 
 
@@ -788,6 +823,9 @@ async def a_execute_conversational_test_cases(
     _is_assert_test: bool,
     progress: Optional[Progress] = None,
     pbar_id: Optional[int] = None,
+    result_callback: Optional[
+        Callable[[TestResult, Optional[Console]], None]
+    ] = None,
 ):
     show_metrics_indicator = show_indicator and not _use_bar_indicator
     pbar_test_case_id = add_pbar(
@@ -830,7 +868,13 @@ async def a_execute_conversational_test_cases(
     ### Update Test Run ###
     test_run_manager.update_test_run(api_test_case, test_case)
 
-    test_results.append(create_test_result(api_test_case))
+    test_result = create_test_result(api_test_case)
+    test_results.append(test_result)
+    if result_callback is not None:
+        result_callback(
+            test_result,
+            progress.console if progress is not None else None,
+        )
     update_pbar(progress, pbar_id)
 
 
@@ -847,6 +891,9 @@ def execute_agentic_test_cases(
     identifier: Optional[str] = None,
     _use_bar_indicator: bool = True,
     _is_assert_test: bool = False,
+    result_callback: Optional[
+        Callable[[TestResult, Optional[Console]], None]
+    ] = None,
 ) -> List[TestResult]:
 
     test_run_manager = global_test_run_manager
@@ -1054,7 +1101,13 @@ def execute_agentic_test_cases(
                 # Update test run
                 api_test_case.update_run_duration(run_duration)
                 test_run_manager.update_test_run(api_test_case, test_case)
-                test_results.append(create_test_result(api_test_case))
+                test_result = create_test_result(api_test_case)
+                test_results.append(test_result)
+                if result_callback is not None:
+                    result_callback(
+                        test_result,
+                        progress.console if progress is not None else None,
+                    )
 
                 update_pbar(progress, pbar_id)
 
@@ -1095,6 +1148,9 @@ async def a_execute_agentic_test_cases(
     identifier: Optional[str] = None,
     _use_bar_indicator: bool = True,
     _is_assert_test: bool = False,
+    result_callback: Optional[
+        Callable[[TestResult, Optional[Console]], None]
+    ] = None,
 ) -> List[TestResult]:
     semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -1143,6 +1199,7 @@ async def a_execute_agentic_test_cases(
                         _is_assert_test=_is_assert_test,
                         progress=progress,
                         pbar_id=pbar_id,
+                        result_callback=result_callback,
                     )
                     tasks.append(asyncio.create_task(task))
                     await asyncio.sleep(throttle_value)
@@ -1165,6 +1222,7 @@ async def a_execute_agentic_test_cases(
                     show_indicator=show_indicator,
                     _use_bar_indicator=_use_bar_indicator,
                     _is_assert_test=_is_assert_test,
+                    result_callback=result_callback,
                 )
                 tasks.append(asyncio.create_task(task))
                 await asyncio.sleep(throttle_value)
@@ -1189,6 +1247,9 @@ async def a_execute_agentic_test_case(
     _is_assert_test: bool,
     progress: Optional[Progress] = None,
     pbar_id: Optional[int] = None,
+    result_callback: Optional[
+        Callable[[TestResult, Optional[Console]], None]
+    ] = None,
 ):
     total_tags = count_observe_decorators_in_module(observed_callback)
     pbar_tags_id = add_pbar(
@@ -1287,7 +1348,13 @@ async def a_execute_agentic_test_case(
 
     api_test_case.update_run_duration(run_duration)
     test_run_manager.update_test_run(api_test_case, test_case)
-    test_results.append(create_test_result(api_test_case))
+    test_result = create_test_result(api_test_case)
+    test_results.append(test_result)
+    if result_callback is not None:
+        result_callback(
+            test_result,
+            progress.console if progress is not None else None,
+        )
 
     update_pbar(progress, pbar_id)
 

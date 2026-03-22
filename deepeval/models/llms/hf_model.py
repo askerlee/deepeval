@@ -114,7 +114,7 @@ class HFModel(DeepEvalBaseLLM):
             output = output_dict[0][0]["generated_text"][len(text[0]):]
             return (output, 0)
         
-    async def a_generate(self, prompt: str, schema: BaseModel) -> BaseModel:
+    async def a_generate(self, prompt: str, sys_prompt: str=None, schema: Optional[BaseModel] = None) -> BaseModel:
         return self.generate(prompt, schema)
 
     def get_model_name(self):

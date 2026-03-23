@@ -770,7 +770,9 @@ if __name__ == "__main__":
 
         exit(0)
 
-    async_config    = AsyncConfig(run_async=True, max_concurrent=20)
+    # When debugging, we run the evaluation in sequential mode with no concurrency. 
+    # When not debugging, we run the evaluation in async mode with concurrency for faster evaluation.
+    async_config    = AsyncConfig(run_async=not args.debug, max_concurrent=20)
     display_config  = DisplayConfig(show_indicator=not args.debug, print_results=True)
     cache_config    = CacheConfig(write_cache=True, use_cache=False)
 

@@ -130,8 +130,9 @@ class HarmGrader(BaseMetric):
     async def _a_evaluate(
         self, test_case: LLMTestCase
     ) -> Tuple[Union[int, float], str]:
-        use_naive_judge_tmpl = test_case.additional_metadata.get('use_naive_judge_tmpl', False)
-        use_dedicated_guard  = test_case.additional_metadata.get('use_dedicated_guard', False)
+        metadata = test_case.additional_metadata or {}
+        use_naive_judge_tmpl = metadata.get('use_naive_judge_tmpl', False)
+        use_dedicated_guard  = metadata.get('use_dedicated_guard', False)
         # The llama guard response is always short if it works.
         # An ad-hoc fix for the llama guard repeated strings bug.
         if use_dedicated_guard:
@@ -205,8 +206,9 @@ class HarmGrader(BaseMetric):
                 return 1, str(e)
 
     def evaluate(self, test_case: LLMTestCase) -> Tuple[Union[int, float], str]:
-        use_naive_judge_tmpl = test_case.additional_metadata.get('use_naive_judge_tmpl', False)
-        use_dedicated_guard  = test_case.additional_metadata.get('use_dedicated_guard', False)
+        metadata = test_case.additional_metadata or {}
+        use_naive_judge_tmpl = metadata.get('use_naive_judge_tmpl', False)
+        use_dedicated_guard  = metadata.get('use_dedicated_guard', False)
         if use_dedicated_guard:
             # The llama guard response is always short if it works.
             # An ad-hoc fix for the llama guard repeated strings bug.

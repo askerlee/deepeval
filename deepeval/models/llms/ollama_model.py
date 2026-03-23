@@ -1,9 +1,27 @@
+import json
+import re
 from ollama import Client, AsyncClient, ChatResponse
 from typing import Optional, Tuple, Union, Dict
 from pydantic import BaseModel
 
 from deepeval.models import DeepEvalBaseLLM
 from deepeval.key_handler import KeyValues, KEY_FILE_HANDLER
+
+
+def _extract_json_dict(content: str) -> Dict:
+    start = content.find("{")
+    end = content.rfind("}") + 1
+
+    if end == 0 and start != -1:
+        content = content + "}"
+        end = len(content)
+
+    if start == -1 or end == 0 or end <= start:
+        raise ValueError("No JSON object found in Ollama response.")
+
+    json_str = content[start:end]
+    json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
+    return json.loads(json_str)
 
 
 class OllamaModel(DeepEvalBaseLLM):
@@ -29,6 +47,16 @@ class OllamaModel(DeepEvalBaseLLM):
         self.max_num_tokens = max_num_tokens
         super().__init__(model_name)
 
+    @staticmethod
+    def _parse_schema_response(content: str, schema: BaseModel):
+        try:
+            return schema.model_validate_json(content)
+        except Exception as first_error:
+            try:
+                return schema.model_validate(_extract_json_dict(content))
+            except Exception:
+                raise first_error
+
     ###############################################
     # Other generate functions
     ###############################################
@@ -44,12 +72,15 @@ class OllamaModel(DeepEvalBaseLLM):
             options={ "temperature": self.temperature, "num_predict": self.max_num_tokens, 
                       # Not sure if prompt KV cache is enabled by default.
                       # Enable KV cache might speed up prefilling the common prefix of the harm template. 
-                      "cache_prompt": True}
+                      "cache_prompt": True},
+            think=False,
         )
 
         if schema:
             try:
-                result = schema.model_validate_json(response.message.content)
+                result = self._parse_schema_response(
+                    response.message.content, schema
+                )
                 return (result, 0)
             except Exception as e:
                 # Bug in llama guard encountered.
@@ -69,12 +100,16 @@ class OllamaModel(DeepEvalBaseLLM):
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
             format=schema.model_json_schema() if schema else None,
-            options={"temperature": self.temperature, "num_predict": self.max_num_tokens}
+            options={"temperature": self.temperature, 
+                     "num_predict": self.max_num_tokens},
+            think=False,
         )
 
         if schema:
             try:
-                result = schema.model_validate_json(response.message.content)
+                result = self._parse_schema_response(
+                    response.message.content, schema
+                )
                 return (result, 0)
             except Exception as e:
                 # Bug in llama guard encountered.

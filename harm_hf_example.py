@@ -1,8 +1,8 @@
-from harm import HarmGrader, HarmTestCase
+from harm import HarmGrader
 
 def main() -> None:
     grader = HarmGrader(
-        harm_category="cybersecurity",
+        harm_category="any",
         model="Qwen/Qwen3-4B-Instruct-2507",
         async_mode=False,
     )

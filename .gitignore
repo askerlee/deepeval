@@ -181,4 +181,4 @@ huggingface
 *.sqlite
 openai*.txt
 .vscode/*
-
+*.zip
